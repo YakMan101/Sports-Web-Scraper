@@ -1,0 +1,8 @@
+pylint
+pytest
+selenium
+geopy
+p_tqdm
+pandas
+numpy
+python-dotenv
