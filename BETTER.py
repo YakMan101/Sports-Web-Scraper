@@ -1,11 +1,8 @@
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.common.by import By
-import selenium.common.exceptions
 from selenium import webdriver
 
-from geopy.geocoders import Nominatim, GoogleV3
+from geopy.geocoders import Nominatim
 from geopy import distance
 
 from functools import partial

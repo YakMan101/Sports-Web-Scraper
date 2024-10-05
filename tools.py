@@ -1,19 +1,24 @@
+import math
+
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.remote.webelement import WebElement
+from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common.by import By
 
-
-def webwait_all(driver, type_, name, timeout):
+def webwait_all(driver: WebDriver, type_: str, name: str, timeout: int) -> list[WebElement]:
     return WebDriverWait(driver, timeout).until(
-        EC.presence_of_all_elements_located((By.__getattribute__(By, type_), name)))
+        EC.presence_of_all_elements_located((By.__getattribute__(By, type_), name))
+    )
 
 
-def webwait(driver, type_, name, timeout):
+def webwait(driver: WebDriver, type_: str, name: str, timeout: int) -> WebElement:
     return WebDriverWait(driver, timeout).until(
-        EC.presence_of_element_located((By.__getattribute__(By, type_), name)))
+        EC.presence_of_element_located((By.__getattribute__(By, type_), name))
+    )
 
 
-def latlon2metres(lat_lon1, lat_lon2):
+def latlon2metres(lat_lon1: tuple[float, float], lat_lon2: tuple[float, float]) -> float:
     lat1, lon1 = lat_lon1
     lat2, lon2 = lat_lon2
 

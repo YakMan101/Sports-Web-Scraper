@@ -6,8 +6,6 @@ import datetime
 import json
 import time
 
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.by import By
 from selenium import webdriver
@@ -296,8 +294,7 @@ def EA_gym(Loc, Act, max_centres=20, cpu_cores=4, timeout=10):
     centres_page = "https://www.everyoneactive.com/centre/"
     driver.get(centres_page)
 
-    all_centres = WebDriverWait(driver, timeout).until(
-        EC.presence_of_all_elements_located((By.CLASS_NAME, "centre-finder__results-item-name")))
+    all_centres = webwait_all(driver, 'CLASS_NAME', "centre-finder__results-item-name", timeout)
     all_centre_names = [x.find_element(By.TAG_NAME, "a").text for x in all_centres]
     all_centre_links = [x.find_element(By.TAG_NAME, "a").get_attribute("href") for x in all_centres]
     all_centre_adresses = [x.find_element(By.TAG_NAME, "a").text for x in all_centres]
