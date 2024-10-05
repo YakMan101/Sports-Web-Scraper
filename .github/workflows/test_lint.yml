@@ -26,12 +26,7 @@ jobs:
 
       - name: Run tests
         continue-on-error: true
-        run: pytest
-
-      - name: Record test results
-        if: '!cancelled()'
-        run: |
-          pytest -r N --tb=no --maxfail=0
+        run: pytest --maxfail=0
 
       - name: Run linter
         continue-on-error: true
