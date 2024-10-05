@@ -1,4 +1,4 @@
-name: Assessment
+name: Test and Lint
 
 on:
   push:
@@ -31,21 +31,9 @@ jobs:
       - name: Record test results
         if: '!cancelled()'
         run: |
-          pytest -r N --tb=no > .util/marking.txt || true
+          pytest -r N --tb=no
 
       - name: Run linter
         continue-on-error: true
         if: '!cancelled()'
         run: pylint --fail-under=8 */*.py --ignore-patterns "test_.+.py" --disable=R0801 
-
-      - name: Record linter results
-        if: '!cancelled()'
-        run: |
-          pylint --fail-under=0 --score=y --reports=n */*.py --disable=R0801 --ignore-patterns "test_.+.py" >> .util/marking.txt || true
-
-      - name: Push results
-        if: '!cancelled()'
-        run: |
-          git add .util/marking.txt
-          git commit -m "Lint"
-          git push
