@@ -8,7 +8,12 @@ Sports Web Scraper is a simple collection of scripts to automate the search for 
 -**Python** Installed
 
 ## 📂 Setup
-1. Create `.env` file containing the following:
+1. Clone the repository
+```bash
+git clone https://github.com/YakMan101/Sports-Web-Scraper.git
+```
+
+2. Create `.env` file containing the following:
 ```bash
 POSTCODE=<uk_post_code_from_where_you_want_to_run_query>
 ACTIVITY=<activity_to_serach_for>
@@ -16,11 +21,11 @@ EMAIL=<email_for_everyoneactive_login>
 EA_PASS=<password_for_everyoneactive_login>
 ```
 
-2. Create virtual environment
+3. Create virtual environment
 ```bash
 python3 -m venv .venv
 ```
-3. Activate virtual environment 
+4. Activate virtual environment 
 - Windows PowerShell
 ```bash
 .venv\Scripts\activate
@@ -30,7 +35,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-4. Run web scraper
+5. Run web scraper
 ```bash
 python3 main.py
 ```
