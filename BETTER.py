@@ -1,3 +1,5 @@
+from selenium.webdriver.remote.webelement import WebElement
+from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.common.by import By
 from selenium import webdriver
@@ -11,11 +13,10 @@ from tqdm import tqdm
 from time import time
 import numpy as np
 
-
 from tools import webwait, webwait_all
 
 
-def get_distance(home_coords, centre_address):
+def get_distance(home_coords: tuple[float, float], centre_address: str) -> float:
     geolocator = Nominatim(user_agent="aaaa")
     centre_address = centre_address.replace('\n', ', ')
     try:
@@ -32,40 +33,42 @@ def get_distance(home_coords, centre_address):
     return distance_
 
 
-def BETTER_gym_loop(link, centre_name, centre_address, Act, home_coords, timeout):
-    BETTER_dict = {}
-    driver = webdriver.Chrome()
-
-    distance_ = get_distance(home_coords, centre_address)
-
-    sport_hall_activities_link = link + '/sports-hall-activities'
-
-    driver.get(sport_hall_activities_link)
-    activities_names = []
+def get_activity_names(driver: WebDriver, timeout: int, retries: int=5) -> list[str]:
+    """return a list of activity names in the sports hall"""
     retry_count = 0
     while True:
         try:
-            activities_names = [x.text.lower() for x in
-                                webwait_all(driver, "CSS_SELECTOR",
-                                            "[class^='SubActivityComponent__ActivityName-sc-1mw63if-2']", timeout)]
-            break
+            return [x.text.lower() for x in
+                    webwait_all(driver, "CSS_SELECTOR",
+                                "[class^='SubActivityComponent__ActivityName-sc-1mw63if-2']", timeout)]
 
         except:
             retry_count += 1
-            print(f'Retrying link (A) {sport_hall_activities_link}, attempt {retry_count}')
+            print(f'Retrying link (A) {driver.current_url}, attempt {retry_count}')
             driver.refresh()
 
-        if retry_count > 5:
-            break
+        if retry_count > retries:
+            return []
 
-    valid_activities_indexes = np.array(
-        [activities_names.index(x) for x in activities_names if Act.lower() in x])
+
+def BETTER_gym_loop(booking_link: str, centre_name: str, centre_address: str, activity: str, home_coords: tuple[float, float], timeout: int) -> dict | None:
+    """Main loop"""
+    BETTER_dict = {}
+    driver = webdriver.Chrome()
+
+    driver.get(booking_link)
+
+    activities_names = get_activity_names(driver, timeout)
+
+    valid_activities_indexes = np.array([activities_names.index(x) for x in activities_names if activity.lower() in x])
+
     if valid_activities_indexes.size == 0:
         return None
 
     valid_activities_names = np.array(activities_names)[valid_activities_indexes]
-    valid_links = [link + '/' + z.lower().replace(' ', '-') for z in valid_activities_names]
+    valid_links = [booking_link + '/' + z.lower().replace(' ', '-') for z in valid_activities_names]
 
+    distance_ = get_distance(home_coords, centre_address)
     centre_address = centre_address.replace('\n', ', ')
     BETTER_dict[centre_name] = {'Address': centre_address, 'Activity': {}, 'Distance': distance_, 'Company': 'BETTER'}
 
@@ -153,7 +156,7 @@ def BETTER_gym_loop(link, centre_name, centre_address, Act, home_coords, timeout
 
 
 # Function for BETTER gyms/centres
-def BETTER_gym(Loc, Act, max_centres=20, cpu_cores=4, timeout=10):
+def BETTER_gym(Loc: str, activity: str, max_centres: int | None = 20, cpu_cores: int = 4, timeout: int = 10) -> dict | None:
     """
     :param Loc: Location which to search from. Postcodes work best.
     :param Act: Activity e.g: 'Badminton', 'Basketball'
@@ -215,68 +218,22 @@ def BETTER_gym(Loc, Act, max_centres=20, cpu_cores=4, timeout=10):
     webwait(driver, "NAME", 'venue_search[searchterm]', timeout).send_keys(Loc)
     Select(driver.find_elements(By.NAME, 'venue_search[business_sector_id]')[1]).select_by_value('2')
     driver.find_element(By.XPATH, "/html[1]/body[1]/main[1]/div[2]/div[1]/form[1]/div[4]/button[1]").click()
-    section = driver.find_element(By.XPATH, "/html[1]/body[1]/main[1]/section[1]")
-    articles = section.find_elements(By.CLASS_NAME, "venue-result-panel")
 
-    all_centre_names, all_centre_addresses, all_activities, all_centre_links = [], [], [], []
-    all_icons = []
 
-    for i, article in enumerate(articles):
-        centre_name = article.find_element(By.CLASS_NAME, "venue-result-panel__link").text
-        try:
-            activities = [z.lower() for z in
-                          article.find_element(By.CLASS_NAME, "venue-result-panel__activities").text.split('\n')]
-            icons = [z.get_attribute('xlink:href').split('#')[-1]
-                     for z in
-                     article.find_element(By.CLASS_NAME, "venue-result-panel__facilities").find_elements(By.TAG_NAME,
-                                                                                                         "use")]
-            all_activities.append(activities.copy())
-            all_icons.append(icons.copy())
-        except:
-            print(f'{centre_name} has no activities')
-            continue
+    centre_names = [x.text for x in webwait_all(driver, "CSS_SELECTOR", "[class^='venue-result-panel__link']", timeout)][:max_centres]
+    centre_addresses = [x.text for x in webwait_all(driver, "CSS_SELECTOR", "[class^='venue-result-panel__address']", timeout)][:max_centres]
+    centre_booking_items = webwait_all(driver, "CSS_SELECTOR", "[class^='call-to-action call-to-action--primary venue-result-panel__btn']", timeout)
+    centre_booking_links = [x.get_attribute('href') for x in centre_booking_items if 'bookings.better' in x.get_attribute('href')][:max_centres]
 
-        centre_address = article.find_element(By.CLASS_NAME, "venue-result-panel__address").text
-        centre_link = article.find_element(
-            By.CLASS_NAME, "venue-result-panel__btns").find_elements(
-            By.CSS_SELECTOR, "a")[0].get_attribute('href')
-
-        all_centre_names.append(centre_name)
-        all_centre_addresses.append(centre_address)
-        all_centre_links.append(centre_link)
-
-    all_centre_names = np.array(all_centre_names)
-    all_centre_addresses = np.array(all_centre_addresses)
-    all_centre_links = np.array(all_centre_links)
+    print(centre_booking_links, centre_names, centre_addresses)
+    if max_centres is None or max_centres > len(centre_booking_links):
+        max_centres = len(centre_booking_links)
 
     driver.close()
-    valid_indexes_activities = np.array([all_activities.index(x) for x in all_activities if Act.lower() in x])
-    valid_indexes_icons = np.array([all_icons.index(x) for x in all_icons if 'hall' in x])
 
-    valid_indexes = np.concatenate((valid_indexes_activities, valid_indexes_icons))
-    valid_indexes = np.unique(valid_indexes)
+    BETTER_gym_dict = p_map(partial(BETTER_gym_loop, activity=activity, home_coords=home_coords, timeout=timeout),
+                             centre_booking_links, centre_names, centre_addresses, num_cpus=cpu_cores)
 
-    valid_centre_names = all_centre_names[valid_indexes]
-    valid_centre_addresses = all_centre_addresses[valid_indexes]
-    valid_centre_links = all_centre_links[valid_indexes]
+    BETTER_gym_dict = {k: v for d in BETTER_gym_dict if d is not None for k, v in d.items()}
 
-    BETTER_dict = {}
-
-    if max_centres is None:
-        max_centres = len(valid_centre_links)
-
-    valid_centre_names = list(valid_centre_names[:max_centres])
-    valid_centre_addresses = list(valid_centre_addresses[:max_centres])
-    valid_centre_links = list(valid_centre_links[:max_centres])
-
-    func = partial(BETTER_gym_loop, Act=Act, home_coords=home_coords, timeout=timeout)
-    results = p_map(func, valid_centre_links, valid_centre_names, valid_centre_addresses, num_cpus=cpu_cores)
-    for result in results:
-        if result is None:
-            continue
-        BETTER_dict.update(result)
-
-    if not BETTER_dict:
-        return None
-
-    return BETTER_dict
+    return BETTER_gym_dict

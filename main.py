@@ -60,8 +60,8 @@ if __name__ == '__main__':
     --> timeout - maximum time script waits for html elements to load.
     """
 
-    better_dict = BETTER_gym(Home, Activity, max_centres=8, cpu_cores=8, timeout=5)
-    ea_dict = EA_gym(Home, Activity, max_centres=8, cpu_cores=8, timeout=5)
+    better_dict = BETTER_gym(Home, Activity, max_centres=8, cpu_cores=8, timeout=10)
+    ea_dict = EA_gym(Home, Activity, max_centres=8, cpu_cores=8, timeout=10)
     # Search through everyone Places centres
     # places_dict = Places_Leisure(Home, Activity, max_centres=10, cpu_cores=1, timeout=5)
 

@@ -21,21 +21,19 @@ EMAIL=<email_for_everyoneactive_login>
 EA_PASS=<password_for_everyoneactive_login>
 ```
 
-3. Create virtual environment
-```bash
-python3 -m venv .venv
-```
-4. Activate virtual environment 
-- Windows PowerShell
-```bash
-.venv\Scripts\activate
-```
+3. Create and activate virtual environment
 - Linux/MacOS
 ```bash
+python3 -m venv .venv
 source .venv/bin/activate
 ```
+- Windows PowerShell
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
 
-5. Run web scraper
+4. Run web scraper
 ```bash
 python3 main.py
 ```
