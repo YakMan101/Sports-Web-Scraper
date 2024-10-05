@@ -31,4 +31,4 @@ jobs:
       - name: Run linter
         continue-on-error: true
         if: '!cancelled()'
-        run: pylint --fail-under=8 */*.py --ignore-patterns "test_.+.py" --disable=R0801 
+        run: find . -name "*.py" | xargs pylint --fail-under=8 --ignore-patterns "test_.+.py" --disable=R0801
