@@ -133,7 +133,8 @@ def get_slots_for_date(driver: WebDriver, timeout: int) -> list[str]:
 def BETTER_gym_loop(booking_link: str, centre_name: str,
                     centre_address: str, activity: str,
                     home_coords: tuple[float, float], timeout: int) -> dict | None:
-    """Main loop"""
+    """Returns all availbale bookings for a given leisure centre booking link"""
+
     BETTER_dict = {}
     driver = webdriver.Chrome()
 
