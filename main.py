@@ -1,3 +1,5 @@
+"""Script to run search for all bookings (BETTER and Everyone Active leisure centres) available for specific sports hall activity"""
+
 from os import environ as ENV
 from multiprocessing import cpu_count
 
@@ -9,6 +11,7 @@ from EA import EA_gym
 
 
 def write_save_avail(data, home, act):
+    """Save all booking information to text file"""
     if data is None:
         print('dict is empty')
         return

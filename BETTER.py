@@ -1,3 +1,5 @@
+"""Functions to retrieve available sports hall boookings from BETTER leisure centre websites"""
+
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.webdriver import WebDriver
@@ -17,6 +19,7 @@ from tools import webwait, webwait_all
 
 
 def get_distance(home_coords: tuple[float, float], centre_address: str) -> float:
+    """Return distance between centre and home"""
     geolocator = Nominatim(user_agent="aaaa")
     centre_address = centre_address.replace('\n', ', ')
     try:
@@ -186,26 +189,10 @@ def BETTER_gym_loop(booking_link: str, centre_name: str,
     return BETTER_dict
 
 
-# Function for BETTER gyms/centres
 def BETTER_gym(Loc: str, activity: str, max_centres: int | None = 20, cpu_cores: int = 4, timeout: int = 10) -> dict | None:
     """
-    :param Loc: Location which to search from. Postcodes work best.
-    :param Act: Activity e.g: 'Badminton', 'Basketball'
-    :param max_centres: Take closest 'n' centres from Loc
-    :param cpu_cores: Number of parallel tabs to be open. Each tab is a different centre
-    :param timeout: Maximum wait time for website to load. If slow internet, increase this.
-    :return: dictionary of centres and corresponding info in the following example structure:
-    {
-        'CentreName1': {
-            'Address': 'CentreAddress1',
-            'Activity': {
-                'ActivityType1': {
-                    'Date1': {
-                        'Times': ['T1', 'T2'], 
-                        'Prices': ['P1', 'P2'], 
-                        'Spaces': ['S1', 'S2']}}},
-            'Distance': 'Distance1'
-    }
+    Main function to collect nearest centres and start threads for booking search.
+    Returns alist of available bookings in the form of a dictionary.
     """
 
     geolocator = Nominatim(user_agent="aaaa")
