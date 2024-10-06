@@ -1,4 +1,5 @@
 from os import environ as ENV
+from multiprocessing import cpu_count
 
 from dotenv import load_dotenv
 import numpy as np
@@ -16,7 +17,8 @@ def write_save_avail(data, home, act):
         f.write(f"Home Address: {home}\n")
         f.write(f"Activity: {act}\n")
         for centre_name, centre_info in data:
-            f.write("\n=============================================================\n")
+            f.write(
+                "\n=============================================================\n")
             f.write("\n\n" + centre_name + ":\n")
             f.write("---------------------------\n")
             f.write(f"Company: {centre_info['Company']}\n")
@@ -36,7 +38,7 @@ def write_save_avail(data, home, act):
                     for price in centre_info['Activity'][activity][date]['Prices']:
                         str_len_price = len(price)
                         spaces = str_len_time - str_len_price
-                        f.write(price + " " * int(spaces) + "| ")
+                        f.write("£" + price + " " * int(spaces) + "| ")
 
                     f.write("\n       " + "Spaces: ")
                     for courts in centre_info['Activity'][activity][date]['Spaces']:
@@ -60,8 +62,10 @@ if __name__ == '__main__':
     --> timeout - maximum time script waits for html elements to load.
     """
 
-    better_dict = BETTER_gym(Home, Activity, max_centres=8, cpu_cores=8, timeout=10)
-    ea_dict = EA_gym(Home, Activity, max_centres=8, cpu_cores=8, timeout=10)
+    better_dict = BETTER_gym(
+        Home, Activity, max_centres=5, cpu_cores=cpu_count(), timeout=10)
+    ea_dict = EA_gym(Home, Activity, max_centres=5,
+                     cpu_cores=cpu_count(), timeout=10)
     # Search through everyone Places centres
     # places_dict = Places_Leisure(Home, Activity, max_centres=10, cpu_cores=1, timeout=5)
 
