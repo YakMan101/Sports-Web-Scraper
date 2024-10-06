@@ -1,11 +1,15 @@
 # Sports Web Scraper
 
+## Notes
+- This is a recreation of an old project. The code is in process of refactoring and cleaning.
+- Places leisure centre script is unfinished
+
 ## 📝 Project Overview
 Sports Web Scraper is a simple collection of scripts to automate the search for activity bookings local to a specified location. This alleveiates the need to manually sift through leisure centre websites one by one.
 
 ## 🛠️ Prerequisites
 
--**Python** Installed
+-**Python (working = 3.12)** Installed
 -**Google Chrome** Installed
 
 ## 📂 Setup
