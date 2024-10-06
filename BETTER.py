@@ -1,3 +1,4 @@
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.select import Select
@@ -9,7 +10,6 @@ from geopy import distance
 
 from functools import partial
 from p_tqdm import p_map
-from tqdm import tqdm
 from time import time
 import numpy as np
 
@@ -22,8 +22,10 @@ def get_distance(home_coords: tuple[float, float], centre_address: str) -> float
     try:
         centre_location = geolocator.geocode(centre_address)
         if centre_location is not None:
-            centre_coords = (centre_location.latitude, centre_location.longitude)
-            distance_ = np.round(distance.geodesic(home_coords, centre_coords).km, 3)
+            centre_coords = (centre_location.latitude,
+                             centre_location.longitude)
+            distance_ = np.round(distance.geodesic(
+                home_coords, centre_coords).km, 3)
         else:
             distance_ = np.nan
 
@@ -33,121 +35,150 @@ def get_distance(home_coords: tuple[float, float], centre_address: str) -> float
     return distance_
 
 
-def get_activity_names(driver: WebDriver, timeout: int, retries: int=5) -> list[str]:
+def get_activities(driver: WebDriver, timeout: int, retries: int = 5) -> list[dict]:
     """return a list of activity names in the sports hall"""
     retry_count = 0
     while True:
         try:
-            return [x.text.lower() for x in
-                    webwait_all(driver, "CSS_SELECTOR",
-                                "[class^='SubActivityComponent__ActivityName-sc-1mw63if-2']", timeout)]
+            activity_names = [x.text.lower() for x in
+                              webwait_all(driver, "CSS_SELECTOR",
+                                          "[class^='SubActivityComponent__ActivityName-sc-1mw63if-2']", timeout)]
+            activity_links = [x.get_attribute('href') for x in
+                              webwait_all(driver, "CSS_SELECTOR",
+                                          "[class^='SubActivityComponent__StyledLink-sc-1mw63if-1 bYfPqu']", timeout)]
+
+            return [{'name': name, 'link': link} for name, link in zip(activity_names, activity_links)]
 
         except:
             retry_count += 1
-            print(f'Retrying link (A) {driver.current_url}, attempt {retry_count}')
+            print(
+                f'Retrying link (A) {driver.current_url}, attempt {retry_count}')
             driver.refresh()
 
         if retry_count > retries:
             return []
 
 
-def BETTER_gym_loop(booking_link: str, centre_name: str, centre_address: str, activity: str, home_coords: tuple[float, float], timeout: int) -> dict | None:
+def get_dates_tab(driver: WebDriver, timeout: int, retries: int = 5) -> WebElement | None:
+    """Return the dates tab web page element for a given activity"""
+
+    retry_count = 0
+    while True:
+        try:
+            return webwait(driver, "CSS_SELECTOR",
+                           "[class^='DateRibbonComponent__DatesWrapper-sc-p1q1bx-1']", timeout)
+        except TimeoutError:
+            retry_count += 1
+            print(
+                f'Retrying link (B) {driver.current_url}, attempt {retry_count}')
+            driver.refresh()
+
+        if retry_count > retries:
+            return None
+
+
+def get_bookings_for_date(driver: WebDriver, timeout: int, retries: int = 5) -> list[str]:
+    """Return a list of booking times available for a given date"""
+
+    found = None
+    start_time = time()
+    retry_count = 0
+    while found is None:
+        times = [x.text.lower() for x in
+                 driver.find_elements(By.CSS_SELECTOR,
+                                      "[class^='ClassCardComponent__ClassTime-sc-1v7d176-3']")]
+
+        if not times:
+            try:
+                driver.find_element(By.CSS_SELECTOR,
+                                    "[class^='ByTimeListComponent__Wrapper-sc-39liwv-1 ByTimeListComponent__NoContentWrapper-sc-39liwv-2']")
+                return []
+            except NoSuchElementException:
+                pass
+
+        else:
+            return times
+
+        end_time = time()
+        if end_time - start_time > timeout:
+            start_time = time()
+            retry_count += 1
+            print(
+                f'Retrying link (C) {driver.current_url}, attempt {retry_count}')
+            driver.refresh()
+
+        if retry_count > retries:
+            return []
+
+
+def get_prices_for_date(driver: WebDriver, timeout: int) -> list[str]:
+    """Return a list of prices for a given date"""
+
+    return [x.text.lower()[1:] for x in
+            webwait_all(driver, "CSS_SELECTOR",
+                        "[class^='ClassCardComponent__Price-sc-1v7d176-14 jumCLU']", timeout)]
+
+
+def get_slots_for_date(driver: WebDriver, timeout: int) -> list[str]:
+    """Return a list ofavailable slots available for a given date"""
+
+    return [x.get_attribute('spaces') for x in
+            webwait_all(driver, "CSS_SELECTOR",
+                        "[class^='ContextualComponent__BookWrap-sc-eu3gk6-1 buJCkX']", timeout)]
+
+
+def BETTER_gym_loop(booking_link: str, centre_name: str,
+                    centre_address: str, activity: str,
+                    home_coords: tuple[float, float], timeout: int) -> dict | None:
     """Main loop"""
     BETTER_dict = {}
     driver = webdriver.Chrome()
 
-    driver.get(booking_link)
+    driver.get(f"{booking_link}/sports-hall-activities")
 
-    activities_names = get_activity_names(driver, timeout)
-
-    valid_activities_indexes = np.array([activities_names.index(x) for x in activities_names if activity.lower() in x])
-
-    if valid_activities_indexes.size == 0:
+    activities = get_activities(driver, timeout)
+    valid_activity_links = [x['link'] for x in activities
+                            if activity.lower() in x['name'].lower()]
+    if len(valid_activity_links) == 0:
         return None
 
-    valid_activities_names = np.array(activities_names)[valid_activities_indexes]
-    valid_links = [booking_link + '/' + z.lower().replace(' ', '-') for z in valid_activities_names]
-
-    distance_ = get_distance(home_coords, centre_address)
+    distance = get_distance(home_coords, centre_address)
     centre_address = centre_address.replace('\n', ', ')
-    BETTER_dict[centre_name] = {'Address': centre_address, 'Activity': {}, 'Distance': distance_, 'Company': 'BETTER'}
+    BETTER_dict[centre_name] = {'Address': centre_address, 'Activity': {},
+                                'Distance': distance, 'Company': 'BETTER'}
 
-    for activity_link in valid_links:
+    for activity_link in valid_activity_links:
         driver.get(activity_link)
-        activity = activity_link.split('/')[-1]
-        retry_count = 0
-        while True:
-            try:
-                dates_tab = webwait(driver, "CSS_SELECTOR",
-                                    "[class^='DateRibbonComponent__DatesWrapper-sc-p1q1bx-1']", timeout)
-                break
-            except:
-                retry_count += 1
-                print(f'Retrying link (B) {activity_link}, attempt {retry_count}')
-                driver.refresh()
-
-            if retry_count > 5:
-                break
+        dates_tab = get_dates_tab(driver, timeout)
+        if dates_tab is None:
+            continue
 
         all_dates_links = [x.get_attribute('href') for x in
                            webwait_all(dates_tab, "TAG_NAME", "a", timeout)
                            if 'undefined' not in x.get_attribute('href')]
         dates_dict = {}
 
-        for date_link in tqdm(all_dates_links, total=len(all_dates_links),
-                              desc=f'Searching: {centre_name} - {activity}', disable=True):
-
+        for date_link in all_dates_links:
             driver.get(date_link)
-            date = date_link.split('/')[-2]
-            found = None
-            start_time = time()
-            retry_count = 0
-            while found is None:
-                try:
-                    times = [x.text.lower() for x in
-                             driver.find_elements(By.CSS_SELECTOR,
-                                                  "[class^='ClassCardComponent__ClassTime-sc-1v7d176-3']")]
-                    if not times:
-                        raise Exception("")
-                    found = True
-                    break
-                except:
-                    pass
+            times = get_bookings_for_date(driver, timeout)
 
-                try:
-                    driver.find_element(By.CSS_SELECTOR,
-                                        "[class^='ByTimeListComponent__Wrapper-sc-39liwv-1 ByTimeListComponent__NoContentWrapper-sc-39liwv-2']")
-                    found = False
-                    break
-                except:
-                    pass
-                end_time = time()
-                if end_time - start_time > timeout:
-                    start_time = time()
-                    retry_count += 1
-                    print(f'Retrying link (C) {activity_link}, attempt {retry_count}')
-                    driver.refresh()
-
-                if retry_count > 5:
-                    break
-
-            if not found:
+            if not times:
                 continue
 
-            prices = [x.text.lower() for x in
-                      webwait_all(driver, "CSS_SELECTOR",
-                                  "[class^='ClassCardComponent__Price-sc-1v7d176-14']", timeout)]
-            spaces_avail = [x.text.lower().split(' ')[0] for x in
-                            webwait_all(driver, "CSS_SELECTOR",
-                                        "[class^='ContextualComponent__BookWrap-sc-eu3gk6-1']", timeout)]
+            prices = get_prices_for_date(driver, timeout)
+            spaces_avail = get_slots_for_date(driver, timeout)
 
-            valid_indexes = np.array([x for x in range(len(spaces_avail)) if spaces_avail[x] != '0'])
+            valid_indexes = np.array(
+                [x for x in range(len(spaces_avail)) if spaces_avail[x] != '0'])
             if valid_indexes.size == 0:
                 continue
 
-            dates_dict[date] = {'Times': np.array(times.copy())[valid_indexes],
-                                'Prices': np.array(prices.copy())[valid_indexes],
-                                'Spaces': np.array(spaces_avail.copy())[valid_indexes]}
+            date = date_link.split('/')[-2]
+            dates_dict[date] = {
+                'Times': [times[i] for i in valid_indexes],
+                'Prices': [prices[i] for i in valid_indexes],
+                'Spaces': [spaces_avail[i] for i in valid_indexes]
+            }
 
         BETTER_dict[centre_name]['Activity'][activity] = dates_dict.copy()
 
@@ -165,45 +196,15 @@ def BETTER_gym(Loc: str, activity: str, max_centres: int | None = 20, cpu_cores:
     :param timeout: Maximum wait time for website to load. If slow internet, increase this.
     :return: dictionary of centres and corresponding info in the following example structure:
     {
-    'Tadworth Leisure and Community Centre':
-        {
-        'Address': 'Preston Manor Road, Tadworth, Surrey, KT20 5FB',
-        'Activity': {
-            'badminton-60min': {
-                '2023-08-29': {
-                    'Times': ['07:00 - 08:00', '14:00 - 15:00'],
-                    'Prices': ['£11.30', '£11.30'],
-                    'Spaces': ['4', '1']
-                    },
-                '2023-08-30': {
-                    'Times': ['07:00 - 08:00', '08:00 - 09:00'],
-                    'Prices': ['£11.30', '£11.30'],
-                    'Spaces': ['4', '2']
-                    },
-                }
-            'badminton-40min': {
-                '2023-08-30': {
-                    'Times': ['19:20 - 20:00'],
-                    'Prices': ['£11.90'],
-                    'Spaces': ['1']
-                    },
-                }
-            },
-        'Distance': '0.122km'
-        },
-    'Rainbow Leisure Centre, Epsom': {
-        'Address': 'East Street, Epsom, Surrey, KT17 1BN',
-        'Activity': {
-            'badminton-60min': {
-                '2023-09-02': {
-                    'Times': ['08:00 - 09:00', '09:00 - 10:00', '10:00 - 11:00', '11:00 - 12:00', '12:00 - 13:00'],
-                    'Prices': ['£14.00', '£14.00', '£14.00', '£14.00', '£14.00', '£14.00', '£14.00', '£14.00'],
-                    'Spaces': ['3', '7', '7', '7', '7', '7', '8', '3']
-                    }
-                }
-            }
-        'Distance': '4.402km'
-        }
+        'CentreName1': {
+            'Address': 'CentreAddress1',
+            'Activity': {
+                'ActivityType1': {
+                    'Date1': {
+                        'Times': ['T1', 'T2'], 
+                        'Prices': ['P1', 'P2'], 
+                        'Spaces': ['S1', 'S2']}}},
+            'Distance': 'Distance1'
     }
     """
 
@@ -216,24 +217,29 @@ def BETTER_gym(Loc: str, activity: str, max_centres: int | None = 20, cpu_cores:
     driver = webdriver.Chrome()
     driver.get(FindCentre_url)
     webwait(driver, "NAME", 'venue_search[searchterm]', timeout).send_keys(Loc)
-    Select(driver.find_elements(By.NAME, 'venue_search[business_sector_id]')[1]).select_by_value('2')
-    driver.find_element(By.XPATH, "/html[1]/body[1]/main[1]/div[2]/div[1]/form[1]/div[4]/button[1]").click()
+    Select(driver.find_elements(By.NAME, 'venue_search[business_sector_id]')[
+           1]).select_by_value('2')
+    driver.find_element(
+        By.XPATH, "/html[1]/body[1]/main[1]/div[2]/div[1]/form[1]/div[4]/button[1]").click()
 
+    centre_names = [x.text for x in webwait_all(
+        driver, "CSS_SELECTOR", "[class^='venue-result-panel__link']", timeout)][:max_centres]
+    centre_addresses = [x.text for x in webwait_all(
+        driver, "CSS_SELECTOR", "[class^='venue-result-panel__address']", timeout)][:max_centres]
+    centre_booking_items = webwait_all(
+        driver, "CSS_SELECTOR", "[class^='call-to-action call-to-action--primary venue-result-panel__btn']", timeout)
+    centre_booking_links = [x.get_attribute(
+        'href') for x in centre_booking_items if 'bookings.better' in x.get_attribute('href')][:max_centres]
 
-    centre_names = [x.text for x in webwait_all(driver, "CSS_SELECTOR", "[class^='venue-result-panel__link']", timeout)][:max_centres]
-    centre_addresses = [x.text for x in webwait_all(driver, "CSS_SELECTOR", "[class^='venue-result-panel__address']", timeout)][:max_centres]
-    centre_booking_items = webwait_all(driver, "CSS_SELECTOR", "[class^='call-to-action call-to-action--primary venue-result-panel__btn']", timeout)
-    centre_booking_links = [x.get_attribute('href') for x in centre_booking_items if 'bookings.better' in x.get_attribute('href')][:max_centres]
-
-    print(centre_booking_links, centre_names, centre_addresses)
     if max_centres is None or max_centres > len(centre_booking_links):
         max_centres = len(centre_booking_links)
 
     driver.close()
 
     BETTER_gym_dict = p_map(partial(BETTER_gym_loop, activity=activity, home_coords=home_coords, timeout=timeout),
-                             centre_booking_links, centre_names, centre_addresses, num_cpus=cpu_cores)
+                            centre_booking_links, centre_names, centre_addresses, num_cpus=cpu_cores)
 
-    BETTER_gym_dict = {k: v for d in BETTER_gym_dict if d is not None for k, v in d.items()}
+    BETTER_gym_dict = {
+        k: v for d in BETTER_gym_dict if d is not None for k, v in d.items()}
 
     return BETTER_gym_dict
