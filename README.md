@@ -6,6 +6,7 @@ Sports Web Scraper is a simple collection of scripts to automate the search for 
 ## 🛠️ Prerequisites
 
 -**Python** Installed
+-**Google Chrome** Installed
 
 ## 📂 Setup
 1. Clone the repository
