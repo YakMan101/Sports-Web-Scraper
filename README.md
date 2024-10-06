@@ -1,7 +1,7 @@
 # Sports Web Scraper
 
 ## Notes
-- This is a recreation of an old project. The code is in process of refactoring and cleaning.
+- This is a recreation of an old project. The code is in process of being refactored and cleaned.
 - Places leisure centre script is unfinished
 
 ## 📝 Project Overview
