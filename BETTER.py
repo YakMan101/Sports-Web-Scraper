@@ -13,9 +13,8 @@ from geopy import distance
 from functools import partial
 from p_tqdm import p_map
 from time import time
-import numpy as np
 
-from tools import webwait, webwait_all
+from tools import webwait, webwait_all, get_coordinates
 
 
 def get_distance(home_coords: tuple[float, float], centre_address: str) -> float:
@@ -27,13 +26,13 @@ def get_distance(home_coords: tuple[float, float], centre_address: str) -> float
         if centre_location is not None:
             centre_coords = (centre_location.latitude,
                              centre_location.longitude)
-            distance_ = np.round(distance.geodesic(
-                home_coords, centre_coords).km, 3)
+            distance_ = round(distance.geodesic(home_coords,
+                                                centre_coords).km, 3)
         else:
-            distance_ = np.nan
+            distance_ = None
 
     except:
-        distance_ = np.nan
+        distance_ = None
 
     return distance_
 
@@ -130,85 +129,93 @@ def get_slots_for_date(driver: WebDriver, timeout: int) -> list[str]:
                         "[class^='ContextualComponent__BookWrap-sc-eu3gk6-1 buJCkX']", timeout)]
 
 
+def initialize_better_dict(centre_name: str, centre_address: str, home_coords: tuple[float, float]) -> dict:
+    """Initialize the dictionary to store centre info."""
+
+    distance = get_distance(home_coords, centre_address)
+    centre_address = centre_address.replace('\n', ', ')
+    return {centre_name: {'Address': centre_address, 'Activity': {},
+                          'Distance': distance, 'Company': 'BETTER'}}
+
+
+def get_valid_activity_links(activities: list[dict], activity: str) -> list[str]:
+    """Return valid activity links that match the user's activity."""
+
+    return [x['link'] for x in activities if activity.lower() in x['name'].lower()]
+
+
+def get_booking_details_for_date(driver: WebDriver, timeout: int) -> tuple[list[str], list[str], list[str]]:
+    """Extract booking times, prices, and available slots for a given date."""
+
+    times = get_bookings_for_date(driver, timeout)
+    if not times:
+        return [], [], []
+
+    prices = get_prices_for_date(driver, timeout)
+    spaces_avail = get_slots_for_date(driver, timeout)
+
+    return times, prices, spaces_avail
+
+
+def process_dates(driver: WebDriver, timeout: int) -> dict:
+    """Process available dates and return booking details for each date."""
+
+    dates_tab = get_dates_tab(driver, timeout)
+    if dates_tab is None:
+        return {}
+
+    all_dates_links = [x.get_attribute('href') for x in
+                       webwait_all(dates_tab, "TAG_NAME", "a", timeout)
+                       if 'undefined' not in x.get_attribute('href')]
+
+    dates_dict = {}
+    for date_link in all_dates_links:
+        driver.get(date_link)
+        date = date_link.split('/')[-2]
+        times, prices, spaces_avail = get_booking_details_for_date(driver,
+                                                                   timeout)
+
+        if times:
+            valid_indexes = [x for x in range(len(spaces_avail))
+                             if spaces_avail[x] != '0']
+            if len(valid_indexes) != 0:
+                dates_dict[date] = {'Times': [times[i] for i in valid_indexes],
+                                    'Prices': [prices[i] for i in valid_indexes],
+                                    'Spaces': [spaces_avail[i] for i in valid_indexes]}
+    return dates_dict
+
+
 def BETTER_gym_loop(booking_link: str, centre_name: str,
                     centre_address: str, activity: str,
                     home_coords: tuple[float, float], timeout: int) -> dict | None:
-    """Returns all availbale bookings for a given leisure centre booking link"""
+    """Returns all available bookings for a given leisure centre booking link"""
 
-    BETTER_dict = {}
     driver = webdriver.Chrome()
+    BETTER_dict = initialize_better_dict(
+        centre_name, centre_address, home_coords)
 
     driver.get(f"{booking_link}/sports-hall-activities")
 
     activities = get_activities(driver, timeout)
-    valid_activity_links = [x['link'] for x in activities
-                            if activity.lower() in x['name'].lower()]
-    if len(valid_activity_links) == 0:
+    valid_activity_links = get_valid_activity_links(activities, activity)
+    if not valid_activity_links:
+        driver.close()
         return None
-
-    distance = get_distance(home_coords, centre_address)
-    centre_address = centre_address.replace('\n', ', ')
-    BETTER_dict[centre_name] = {'Address': centre_address, 'Activity': {},
-                                'Distance': distance, 'Company': 'BETTER'}
 
     for activity_link in valid_activity_links:
         driver.get(activity_link)
-        dates_tab = get_dates_tab(driver, timeout)
-        if dates_tab is None:
-            continue
+        dates_dict = process_dates(driver, timeout)
 
-        all_dates_links = [x.get_attribute('href') for x in
-                           webwait_all(dates_tab, "TAG_NAME", "a", timeout)
-                           if 'undefined' not in x.get_attribute('href')]
-        dates_dict = {}
-
-        for date_link in all_dates_links:
-            driver.get(date_link)
-            times = get_bookings_for_date(driver, timeout)
-
-            if not times:
-                continue
-
-            prices = get_prices_for_date(driver, timeout)
-            spaces_avail = get_slots_for_date(driver, timeout)
-
-            valid_indexes = np.array(
-                [x for x in range(len(spaces_avail)) if spaces_avail[x] != '0'])
-            if valid_indexes.size == 0:
-                continue
-
-            date = date_link.split('/')[-2]
-            dates_dict[date] = {
-                'Times': [times[i] for i in valid_indexes],
-                'Prices': [prices[i] for i in valid_indexes],
-                'Spaces': [spaces_avail[i] for i in valid_indexes]
-            }
-
-        BETTER_dict[centre_name]['Activity'][activity] = dates_dict.copy()
+        if dates_dict:
+            BETTER_dict[centre_name]['Activity'][activity] = dates_dict.copy()
 
     driver.close()
+
     return BETTER_dict
 
 
-def BETTER_gym(Loc: str, activity: str, max_centres: int | None = 20, cpu_cores: int = 4, timeout: int = 10) -> dict | None:
-    """
-    Main function to collect nearest centres and start threads for booking search.
-    Returns alist of available bookings in the form of a dictionary.
-    """
-
-    geolocator = Nominatim(user_agent="aaaa")
-    home = geolocator.geocode(Loc)
-    home_coords = (home.latitude, home.longitude)
-
-    FindCentre_url = "https://www.better.org.uk/centre-locator"
-
-    driver = webdriver.Chrome()
-    driver.get(FindCentre_url)
-    webwait(driver, "NAME", 'venue_search[searchterm]', timeout).send_keys(Loc)
-    Select(driver.find_elements(By.NAME, 'venue_search[business_sector_id]')[
-           1]).select_by_value('2')
-    driver.find_element(
-        By.XPATH, "/html[1]/body[1]/main[1]/div[2]/div[1]/form[1]/div[4]/button[1]").click()
+def extract_centre_info(driver: WebDriver, timeout: int, max_centres: int) -> tuple[list[str], list[str], list[str]]:
+    """Extract centre names, addresses, and booking links after a search."""
 
     centre_names = [x.text for x in webwait_all(
         driver, "CSS_SELECTOR", "[class^='venue-result-panel__link']", timeout)][:max_centres]
@@ -219,15 +226,44 @@ def BETTER_gym(Loc: str, activity: str, max_centres: int | None = 20, cpu_cores:
     centre_booking_links = [x.get_attribute(
         'href') for x in centre_booking_items if 'bookings.better' in x.get_attribute('href')][:max_centres]
 
-    if max_centres is None or max_centres > len(centre_booking_links):
-        max_centres = len(centre_booking_links)
+    return centre_names, centre_addresses, centre_booking_links
 
-    driver.close()
+
+def search_centres(driver: WebDriver, postcode: str, timeout: int, max_centres: int) -> tuple[list[str], list[str], list[str]]:
+    """Search and return centre names, addresses, and booking links."""
+
+    FindCentre_url = "https://www.better.org.uk/centre-locator"
+    driver.get(FindCentre_url)
+
+    webwait(driver, "NAME", 'venue_search[searchterm]', timeout).send_keys(
+        postcode)
+    Select(driver.find_elements(By.NAME, 'venue_search[business_sector_id]')[
+           1]).select_by_value('2')
+    driver.find_element(
+        By.XPATH, "/html[1]/body[1]/main[1]/div[2]/div[1]/form[1]/div[4]/button[1]").click()
+
+    return extract_centre_info(driver, timeout, max_centres)
+
+
+def process_centre_bookings(centre_names: list[str], centre_addresses: list[str], centre_booking_links: list[str],
+                            activity: str, home_coords: tuple[float, float], timeout: int, cpu_cores: int) -> dict:
+    """Start threads for booking search for each centre and return available bookings."""
 
     BETTER_gym_dict = p_map(partial(BETTER_gym_loop, activity=activity, home_coords=home_coords, timeout=timeout),
                             centre_booking_links, centre_names, centre_addresses, num_cpus=cpu_cores)
 
-    BETTER_gym_dict = {
-        k: v for d in BETTER_gym_dict if d is not None for k, v in d.items()}
+    return {k: v for d in BETTER_gym_dict if d is not None for k, v in d.items()}
 
-    return BETTER_gym_dict
+
+def BETTER_gym(postcode: str, activity: str, max_centres: int | None = 20, cpu_cores: int = 4, timeout: int = 10) -> dict | None:
+    """Main function to collect nearest centres and return available bookings."""
+
+    home_coords = get_coordinates(postcode)
+    driver = webdriver.Chrome()
+
+    centre_names, centre_addresses, centre_booking_links = search_centres(driver, postcode,
+                                                                          timeout, max_centres)
+    driver.close()
+
+    return process_centre_bookings(centre_names, centre_addresses, centre_booking_links,
+                                   activity, home_coords, timeout, cpu_cores)

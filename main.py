@@ -4,7 +4,6 @@ from os import environ as ENV
 from multiprocessing import cpu_count
 
 from dotenv import load_dotenv
-import numpy as np
 
 from BETTER import BETTER_gym
 from EA import EA_gym
@@ -26,7 +25,10 @@ def write_save_avail(data, home, act):
             f.write("---------------------------\n")
             f.write(f"Company: {centre_info['Company']}\n")
             f.write(f"Address: {centre_info['Address']}\n")
-            f.write(f"Distance: {centre_info['Distance']}km\n")
+            if centre_info['Distance'] is None:
+                f.write(f"Distance: Not Found")
+            else:
+                f.write(f"Distance: {centre_info['Distance']}km\n")
             for activity in list(centre_info['Activity'].keys()):
                 f.write("\n\n-->" + activity + ":")
                 for date in list(centre_info['Activity'][activity].keys()):
@@ -54,8 +56,8 @@ if __name__ == '__main__':
 
     load_dotenv()
 
-    Home = ENV['POSTCODE']
-    Activity = ENV['ACTIVITY']
+    postcode = ENV['POSTCODE']
+    activity = ENV['ACTIVITY']
 
     """
     If you have slower internet or computer please either reduce 'cpu_cores' or increase 'timeout'
@@ -65,12 +67,10 @@ if __name__ == '__main__':
     --> timeout - maximum time script waits for html elements to load.
     """
 
-    better_dict = BETTER_gym(
-        Home, Activity, max_centres=5, cpu_cores=cpu_count(), timeout=10)
-    ea_dict = EA_gym(Home, Activity, max_centres=5,
+    better_dict = BETTER_gym(postcode, activity, max_centres=5,
+                             cpu_cores=cpu_count(), timeout=10)
+    ea_dict = EA_gym(postcode, activity, max_centres=5,
                      cpu_cores=cpu_count(), timeout=10)
-    # Search through everyone Places centres
-    # places_dict = Places_Leisure(Home, Activity, max_centres=10, cpu_cores=1, timeout=5)
 
     all_dict = {}
     for i in [better_dict, ea_dict]:
@@ -78,7 +78,9 @@ if __name__ == '__main__':
             all_dict = all_dict | i
 
     dict_list = [x for x in all_dict.items()]
-    dict_list_distances = [x[1]['Distance'] for x in dict_list]
-    dict_list_sorted = np.array(dict_list)[np.argsort(dict_list_distances)]
+    dict_list_sorted = sorted(dict_list,
+                              key=lambda x: x[1]['Distance']
+                              if x[1]['Distance']
+                              is not None else 99999)
 
-    write_save_avail(dict_list_sorted, Home, Activity)
+    write_save_avail(dict_list_sorted, postcode, activity)
