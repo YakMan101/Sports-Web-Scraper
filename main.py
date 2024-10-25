@@ -5,8 +5,8 @@ from multiprocessing import cpu_count
 
 from dotenv import load_dotenv
 
-from BETTER import BETTER_gym
-from EA import EA_gym
+from BETTER import scrape_better_website
+from EA import scrape_ea_website
 
 
 def write_save_avail(data, home, act):
@@ -66,16 +66,15 @@ if __name__ == '__main__':
     --> cpu_cores - Number of parallel browsers that can be open at the same time
     --> timeout - maximum time script waits for html elements to load.
     """
-
-    better_dict = BETTER_gym(postcode, activity, max_centres=5,
-                             cpu_cores=cpu_count(), timeout=10)
-    ea_dict = EA_gym(postcode, activity, max_centres=5,
-                     cpu_cores=cpu_count(), timeout=10)
+    better_dict, ea_dict = {}, {}
+    # better_dict = scrape_better_website(postcode, activity, max_centres=5,
+    #                                     cpu_cores=cpu_count(), timeout=10)
+    ea_dict = scrape_ea_website(postcode, activity, max_centres=5,
+                                cpu_cores=cpu_count(), timeout=10)
 
     all_dict = {}
     for i in [better_dict, ea_dict]:
-        if i is not None:
-            all_dict = all_dict | i
+        all_dict = all_dict | i
 
     dict_list = [x for x in all_dict.items()]
     dict_list_sorted = sorted(dict_list,

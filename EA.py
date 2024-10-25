@@ -5,11 +5,13 @@ import datetime
 import json
 import time
 
+from selenium.common.exceptions import StaleElementReferenceException
+from selenium.webdriver.remote.webelement import WebElement
+from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.by import By
 from selenium import webdriver
 
-from geopy.geocoders import Nominatim
 from geopy import distance
 
 from p_tqdm import p_map
@@ -17,10 +19,12 @@ import pandas as pd
 import numpy as np
 
 
-from tools import webwait, webwait_all, similar
+from tools import webwait, webwait_all, similar, get_coordinates, scroll_into_view, return_similar_strings
 
 
-def EA_login(driver, timeout):
+def ea_login(driver, timeout):
+    """Login to ea account if prompted"""
+
     try:
         webwait(driver, 'ID', "CybotCookiebotDialogBodyButtonDecline",
                 timeout).click()
@@ -33,6 +37,8 @@ def EA_login(driver, timeout):
 
 
 def read_master_table(driver, timeout):
+    """Read table of available bookings"""
+
     try:
         availabilty_grid = webwait(
             driver, 'CLASS_NAME', "masterTable ", timeout)
@@ -56,93 +62,122 @@ def read_master_table(driver, timeout):
     return table_data, index, columns
 
 
-def search_paramters(driver, timeout, adv_search_panel, centre_name, centre_options):
+def clean_centre_name(centre_name: str) -> str:
+    """Remove certain words from centre name and make all lower case"""
+
+    items_to_remove = ['leisure centre', 'the', 'l c', 'lc']
+    cleaned_centre_name = centre_name.lower()
+    for item in items_to_remove:
+        cleaned_centre_name = cleaned_centre_name.replace(item, '')
+
+    return cleaned_centre_name.strip()
+
+
+def find_search_panel(driver: WebDriver, timeout: int) -> WebElement:
+    """Return the search panel object"""
+
+    panels = webwait_all(driver, 'CLASS_NAME', "panel.panel-default", timeout)
+    panel_names = [x.text.lower() for x in panels]
+    return panels[panel_names.index('advanced search')]
+
+
+def expand_adv_search_panel(adv_search_panel: WebElement) -> None:
+    """Expand advanced search panel so the scroll element can be retrieved"""
+
+    adv_search_panel_expanded = adv_search_panel.find_element(
+        By.CLASS_NAME, 'panel-heading').get_attribute('aria-expanded')
+
+    if adv_search_panel_expanded == 'false' or adv_search_panel_expanded is None:
+        adv_search_panel.click()
+
+
+def get_centre_scroll_element(driver: WebDriver, timeout: int) -> WebElement:
+    """Return scroll object to select centres"""
+
+    return Select(webwait(driver, 'ID',
+                          "ctl00_MainContent__advanceSearchUserControl_SitesAdvanced", timeout))
+
+
+def get_centre_options(driver: WebDriver, adv_search_panel: WebElement, timeout: int) -> tuple[list[str], WebElement]:
+    """Return list of centres obtained from centre scroller"""
+
+    while True:
+        expand_adv_search_panel(adv_search_panel)
+        centre_scroll = get_centre_scroll_element(driver, timeout)
+
+        centre_options = [clean_centre_name(x.text.lower())
+                          for x in centre_scroll.options]
+
+        if '' not in centre_options:
+            return centre_scroll, centre_options
+
+
+def select_end_date(driver: WebDriver, timeout: int) -> None:
+    """Select 2 weeks from now on the date range selector"""
+
+    end_date_selector = webwait(
+        driver, 'ID', "ctl00_MainContent__advanceSearchUserControl_endDate", timeout)
+    end_date = (datetime.date.today() +
+                datetime.timedelta(days=14)).strftime("%d/%m/%Y")
+    end_date_selector.clear()
+    end_date_selector.send_keys(end_date)
+
+
+def get_activity_options(driver: WebDriver, timeout: int) -> list[str]:
+    """Return list of activities available at centre"""
+
+    act_scroll = Select(
+        webwait(driver, 'ID', "ctl00_MainContent__advanceSearchUserControl_Activities", timeout))
+
+    return act_scroll, [x.text for x in act_scroll.options]
+
+
+def search_parameters(driver: webdriver, adv_search_panel: WebElement, centre_name: str, timeout: int):
     start = time.time()
     while True:
-        if (time.time() - start) >= timeout + 2:
+        if (time.time() - start) >= timeout:
             return None, None
 
         try:
-            adv_search_panel_expanded = adv_search_panel.find_element(
-                By.CLASS_NAME, 'panel-heading').get_attribute('aria-expanded')
-            if adv_search_panel_expanded == 'false' or adv_search_panel_expanded is None:
-                adv_search_panel.click()
+            centre_scroll, centre_options = get_centre_options(driver, adv_search_panel,
+                                                               timeout)
+            cleaned_centre_name = clean_centre_name(centre_name)
+            matching_centres = return_similar_strings(cleaned_centre_name, centre_options,
+                                                      0.6)
+            centre_index = centre_options.index(matching_centres[0][0])
 
-            centre_scroll = Select(webwait(
-                driver, 'ID', "ctl00_MainContent__advanceSearchUserControl_SitesAdvanced", timeout))
-
-            matching_centres = [
-                x for x in centre_options if similar(centre_name, x) >= 0.6]
-
-            matching_centres = sorted(
-                matching_centres, key=lambda x: similar(x, centre_name), reverse=True)
-            centre_index = centre_options.index(matching_centres[0])
             centre_scroll.select_by_index(centre_index)
+            select_end_date(driver, timeout)
+            act_scroll, act_options = get_activity_options(driver, timeout)
 
-            end_date_selecter = webwait(
-                driver, 'ID', "ctl00_MainContent__advanceSearchUserControl_endDate", timeout)
-            end_date = (datetime.date.today() +
-                        datetime.timedelta(days=14)).strftime("%d/%m/%Y")
-            end_date_selecter.clear()
-            end_date_selecter.send_keys(end_date)
-
-            act_scroll = Select(
-                webwait(driver, 'ID', "ctl00_MainContent__advanceSearchUserControl_Activities", timeout))
-            act_options = [x.text for x in act_scroll.options]
+            print(centre_name, act_options)
 
             return act_scroll, act_options
 
-        except:
+        except (IndexError, StaleElementReferenceException):
             continue
 
 
-def EA_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
+def ea_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
     EA_dict = {}
     booking_link = 'https://profile.everyoneactive.com/booking'
 
     driver = webdriver.Chrome()
     driver.get(booking_link)
 
-    EA_login(driver, timeout)
+    ea_login(driver, timeout)
 
     webwait(driver, 'ID', "bookingFrame", timeout)
     driver.switch_to.frame('bookingFrame')
 
-    panels = webwait_all(driver, 'CLASS_NAME', "panel.panel-default", timeout)
-    panel_names = [x.text.lower() for x in panels]
-    adv_search_panel = panels[panel_names.index('advanced search')]
-    driver.execute_script(
-        "arguments[0].scrollIntoView({block: 'center'});", adv_search_panel)
+    adv_search_panel = find_search_panel(driver, timeout)
+    scroll_into_view(driver, adv_search_panel)
 
-    centre_name_original = centre_name
-    centre_name = centre_name.lower().replace('leisure centre', '').strip()
-    centre_name = centre_name.replace('the', '').strip()
-    centre_name = centre_name.replace('l c', '').strip()
-    centre_name = centre_name.replace('lc', '').strip()
+    act_scroll, act_options = search_parameters(
+        driver, adv_search_panel, centre_name, timeout)
 
-    while True:
-        adv_search_panel_expanded = adv_search_panel.find_element(
-            By.CLASS_NAME, 'panel-heading').get_attribute('aria-expanded')
-        if adv_search_panel_expanded == 'false' or adv_search_panel_expanded is None:
-            adv_search_panel.click()
-
-        centre_scroll = Select(
-            webwait(driver, 'ID', "ctl00_MainContent__advanceSearchUserControl_SitesAdvanced", timeout))
-
-        centre_options = [x.text.lower() for x in centre_scroll.options]
-        centre_options = [x.replace('leisure centre', '').strip()
-                          for x in centre_options]
-        centre_options = [x.replace('the', '').strip() for x in centre_options]
-        centre_options = [x.replace('l c', '').strip() for x in centre_options]
-        centre_options = [x.replace('lc', '').strip() for x in centre_options]
-
-        if '' not in centre_options:
-            break
-
-    act_scroll, act_options = search_paramters(
-        driver, timeout, adv_search_panel, centre_name, centre_options)
     if act_scroll is None:
-        print(f'{centre_name_original} cannot be found')
+        print(f'{centre_name} cannot be found')
         driver.close()
         return None
 
@@ -154,13 +189,13 @@ def EA_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
         x for x in valid_act_options_names if 'mixed' not in x.lower()]
 
     if not valid_act_options_names:
-        print(f'{Act} is not available at: {centre_name_original}')
+        print(f'{Act} is not available at: {centre_name}')
         driver.close()
         return None
 
     centre_address = centre_address.replace('\n', ', ')
-    EA_dict[centre_name_original] = {'Address': centre_address, 'Activity': {}, 'Distance': centre_distance,
-                                     'Company': 'Everyone Active'}
+    EA_dict[centre_name] = {'Address': centre_address, 'Activity': {}, 'Distance': centre_distance,
+                            'Company': 'Everyone Active'}
 
     for i, options_name in enumerate(valid_act_options_names):
         act_scroll.select_by_visible_text(options_name)
@@ -189,8 +224,8 @@ def EA_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
                     if adv_search_panel_expanded == 'false' or adv_search_panel_expanded is None:
                         adv_search_panel.click()
 
-                    act_scroll, act_options = search_paramters(driver, timeout, adv_search_panel, centre_name,
-                                                               centre_options)
+                    act_scroll, act_options = search_parameters(
+                        driver, adv_search_panel, centre_name, timeout)
                 break
 
             try:
@@ -263,7 +298,7 @@ def EA_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
                                     'Prices': np.array(prices.copy()),
                                     'Spaces': np.array(spaces_avail.copy())}
 
-            EA_dict[centre_name_original]['Activity'][options_name] = dates_dict.copy()
+            EA_dict[centre_name]['Activity'][options_name] = dates_dict.copy()
         except:
             pass
 
@@ -283,17 +318,17 @@ def EA_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
             if adv_search_panel_expanded == 'false' or adv_search_panel_expanded is None:
                 adv_search_panel.click()
 
-            act_scroll, act_options = search_paramters(
-                driver, timeout, adv_search_panel, centre_name, centre_options)
+            act_scroll, act_options = search_parameters(
+                driver, adv_search_panel, centre_name, timeout)
 
-    if EA_dict[centre_name_original]['Activity'] == {}:
+    if EA_dict[centre_name]['Activity'] == {}:
         return None
     driver.close()
     return EA_dict
 
 
 # Function for Everyone Active gyms/centres
-def EA_gym(Loc, Act, max_centres=20, cpu_cores=4, timeout=10):
+def scrape_ea_website(postcode, Act, max_centres=20, cpu_cores=4, timeout=10):
     """
     :param Loc: Location which to search from. Postcodes work best.
     :param Act: Activity e.g: 'Badminton', 'Basketball'
@@ -303,9 +338,7 @@ def EA_gym(Loc, Act, max_centres=20, cpu_cores=4, timeout=10):
     :return: dictionary of centres and corresponding info in the same structure as seen in BETTER_gym:
     """
 
-    geolocator = Nominatim(user_agent="aaaa")
-    home = geolocator.geocode(Loc)
-    home_coords = (home.latitude, home.longitude)
+    home_coords = get_coordinates(postcode)
 
     driver = webdriver.Chrome()
 
@@ -344,13 +377,12 @@ def EA_gym(Loc, Act, max_centres=20, cpu_cores=4, timeout=10):
     all_centre_names = list(all_centre_names[ordered_indexes])
     all_centre_adresses = list(all_centre_adresses[ordered_indexes])
     all_centre_distances = list(all_centre_distances[ordered_indexes])
-    # all_centre_links = list(all_centre_links[ordered_indexes])
 
     EA_dict = {}
 
     driver.close()
 
-    func = partial(EA_gym_loop, Act=Act, timeout=timeout)
+    func = partial(ea_gym_loop, Act=Act, timeout=timeout)
     results = p_map(func, all_centre_names, all_centre_adresses,
                     all_centre_distances, num_cpus=cpu_cores)
 
@@ -360,6 +392,6 @@ def EA_gym(Loc, Act, max_centres=20, cpu_cores=4, timeout=10):
         EA_dict.update(result)
 
     if not EA_dict:
-        return None
+        return {}
 
     return EA_dict

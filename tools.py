@@ -23,6 +23,13 @@ def webwait(driver: WebDriver, type_: str, name: str, timeout: int) -> WebElemen
     )
 
 
+def scroll_into_view(driver: WebDriver, element: WebElement) -> None:
+    """Bring specific element into view"""
+
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block: 'center'});", element)
+
+
 def get_coordinates(postcode: str) -> tuple[int, int]:
     """Return longitude and latitude of a given postcode"""
 
@@ -51,7 +58,20 @@ def get_distance_between_coords(lat_lon1: tuple[float, float], lat_lon2: tuple[f
     return d
 
 
-def similar(a, b):
+def similar(a: str, b: str) -> float:
     """Check how similar two strings are"""
 
     return SequenceMatcher(None, a, b).ratio()
+
+
+def return_similar_strings(case: str, string_list: list[str], threshold: float) -> list[tuple[str, float]]:
+    """Return a list of strings that meet minimum similarity ratio 
+    to the case in order of most to least similar"""
+
+    similar_strings = []
+    for string in string_list:
+        similarity_score = similar(case, string)
+        if similarity_score >= threshold:
+            similar_strings.append((string, similarity_score))
+
+    return sorted(similar_strings, key=lambda x: similar(x, case), reverse=True)

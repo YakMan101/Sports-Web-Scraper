@@ -255,7 +255,7 @@ def process_centre_bookings(centre_names: list[str], centre_addresses: list[str]
     return {k: v for d in BETTER_gym_dict if d is not None for k, v in d.items()}
 
 
-def BETTER_gym(postcode: str, activity: str, max_centres: int | None = 20, cpu_cores: int = 4, timeout: int = 10) -> dict | None:
+def scrape_better_website(postcode: str, activity: str, max_centres: int = 20, cpu_cores: int = 4, timeout: int = 10) -> dict | None:
     """Main function to collect nearest centres and return available bookings."""
 
     home_coords = get_coordinates(postcode)
