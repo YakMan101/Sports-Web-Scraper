@@ -123,7 +123,7 @@ def select_end_date(driver: WebDriver, timeout: int) -> None:
     end_date_selector.send_keys(end_date)
 
 
-def get_activity_options(driver: WebDriver, timeout: int) -> list[str]:
+def get_activity_options(driver: WebDriver, timeout: int) -> tuple[Select, list[str]]:
     """Return list of activities available at centre"""
 
     act_scroll = Select(
@@ -132,7 +132,7 @@ def get_activity_options(driver: WebDriver, timeout: int) -> list[str]:
     return act_scroll, [x.text for x in act_scroll.options]
 
 
-def search_parameters(driver: webdriver, adv_search_panel: WebElement, centre_name: str, timeout: int):
+def search_parameters(driver: webdriver, adv_search_panel: WebElement, centre_name: str, timeout: int) -> tuple[Select, list[str]]:
     start = time.time()
     while True:
         if (time.time() - start) >= timeout:
@@ -148,9 +148,8 @@ def search_parameters(driver: webdriver, adv_search_panel: WebElement, centre_na
 
             centre_scroll.select_by_index(centre_index)
             select_end_date(driver, timeout)
-            act_scroll, act_options = get_activity_options(driver, timeout)
 
-            print(centre_name, act_options)
+            act_scroll, act_options = get_activity_options(driver, timeout)
 
             return act_scroll, act_options
 
@@ -182,13 +181,13 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
         return None
 
     act_options_lower_case = [x.lower() for x in act_options]
-    valid_act_options_names = [act_options[x] for x in range(len(act_options_lower_case))
-                               if Act.lower() in act_options_lower_case[x]]
+    valid_act_options = [act_options[x] for x in range(len(act_options_lower_case))
+                         if Act.lower() in act_options_lower_case[x]]
 
-    valid_act_options_names = [
-        x for x in valid_act_options_names if 'mixed' not in x.lower()]
+    valid_act_options = [
+        x for x in valid_act_options if 'mixed' not in x.lower()]
 
-    if not valid_act_options_names:
+    if not valid_act_options:
         print(f'{Act} is not available at: {centre_name}')
         driver.close()
         return None
@@ -197,8 +196,10 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
     EA_dict[centre_name] = {'Address': centre_address, 'Activity': {}, 'Distance': centre_distance,
                             'Company': 'Everyone Active'}
 
-    for i, options_name in enumerate(valid_act_options_names):
-        act_scroll.select_by_visible_text(options_name)
+    for i, option in enumerate(valid_act_options):
+        # Needed to remind the scroll object that it has options for some reason.
+        act_scroll.options
+        act_scroll.select_by_visible_text(option)
         webwait(
             driver, 'ID', "ctl00_MainContent__advanceSearchUserControl__searchBtn", timeout).click()
 
@@ -207,7 +208,7 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
         start = time.time()
         while True:
             if (time.time() - start) >= timeout + 2:
-                if not i + 1 == len(valid_act_options_names):
+                if not i + 1 == len(valid_act_options):
                     driver.get(booking_link)
                     webwait(driver, 'ID', "bookingFrame", timeout)
                     driver.switch_to.frame('bookingFrame')
@@ -302,7 +303,7 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
         except:
             pass
 
-        if not i + 1 == len(valid_act_options_names):
+        if not i + 1 == len(valid_act_options):
             driver.get(booking_link)
             webwait(driver, 'ID', "bookingFrame", timeout)
             driver.switch_to.frame('bookingFrame')
