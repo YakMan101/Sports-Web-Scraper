@@ -5,7 +5,7 @@ import datetime
 import json
 import time
 
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import Select
@@ -36,7 +36,7 @@ def ea_login(driver, timeout):
     webwait(driver, 'CSS_SELECTOR', 'button[type="submit"]', timeout).click()
 
 
-def read_master_table(driver, timeout):
+def read_master_table(driver: WebDriver, timeout: int) -> tuple[list[int], list[str], list[str]]:
     """Read table of available bookings"""
 
     try:
@@ -163,14 +163,13 @@ def filter_activity_options(activity: str, options: list[str]) -> list[str]:
     return [x for x in options if activity.lower() in x.lower()]
 
 
-def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout):
-    EA_dict = {}
-    booking_link = 'https://profile.everyoneactive.com/booking'
+def setup_search_page(driver: WebDriver, booking_link: str, centre_name: str, login: bool = True, timeout: int = 10) -> Select:
+    """Setup EA search page with correct parameters and return scroll object for activity selection"""
 
-    driver = webdriver.Chrome()
     driver.get(booking_link)
 
-    ea_login(driver, timeout)
+    if login:
+        ea_login(driver, timeout)
 
     webwait(driver, 'ID', "bookingFrame", timeout)
     driver.switch_to.frame('bookingFrame')
@@ -178,8 +177,16 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout)
     adv_search_panel = find_search_panel(driver, timeout)
     scroll_into_view(driver, adv_search_panel)
 
-    act_scroll, act_options = search_parameters(
-        driver, adv_search_panel, centre_name, timeout)
+    return search_parameters(driver, adv_search_panel, centre_name, timeout)
+
+
+def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout):
+    EA_dict = {}
+    booking_link = 'https://profile.everyoneactive.com/booking'
+
+    driver = webdriver.Chrome()
+    act_scroll, act_options = setup_search_page(
+        driver, booking_link, centre_name, True, timeout)
 
     if act_scroll is None:
         print(f'{centre_name} cannot be found')
@@ -196,11 +203,16 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout)
     EA_dict[centre_name] = {'Address': centre_address.replace('\n', ', '), 'Activity': {},
                             'Distance': centre_distance, 'Company': 'Everyone Active'}
 
-    print(centre_address)
     for i, option in enumerate(valid_act_options):
-        # Needed to remind the scroll object that it has options for some reason.
-        act_scroll.options
-        act_scroll.select_by_visible_text(option)
+
+        print(option)
+        while True:
+            try:
+                act_scroll.select_by_visible_text(option)
+                break
+
+            except NoSuchElementException:
+                pass
 
         webwait(driver, 'ID',
                 "ctl00_MainContent__advanceSearchUserControl__searchBtn", timeout).click()
@@ -208,59 +220,55 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout)
         avail_text = ''
         no_results = False
         start = time.time()
-        while True:
-            if (time.time() - start) >= timeout + 2:
-                if not i + 1 == len(valid_act_options):
-                    driver.get(booking_link)
-                    webwait(driver, 'ID', "bookingFrame", timeout)
-                    driver.switch_to.frame('bookingFrame')
 
-                    panels = webwait_all(
-                        driver, 'CLASS_NAME', "panel.panel-default", timeout)
-                    panel_names = [x.text.lower() for x in panels]
-                    adv_search_panel = panels[panel_names.index(
-                        'advanced search')]
-                    driver.execute_script(
-                        "arguments[0].scrollIntoView({block: 'center'});", adv_search_panel)
-                    adv_search_panel_expanded = adv_search_panel.find_element(
-                        By.CLASS_NAME, 'panel-heading').get_attribute('aria-expanded')
-                    if adv_search_panel_expanded == 'false' or adv_search_panel_expanded is None:
-                        adv_search_panel.click()
-
-                    act_scroll, act_options = search_parameters(
-                        driver, adv_search_panel, centre_name, timeout)
-                break
+        while (time.time() - start) <= timeout:
 
             try:
                 try:
                     alert_text = driver.find_element(
                         By.CLASS_NAME, 'alert.alert-warning').text
+
                     if 'No results' in alert_text:
                         no_results = True
                         break
                 except:
                     pass
+
                 activity_btn = driver.find_element(
                     By.CLASS_NAME, 'col-sm-12.btn-group.btn-block')
-                avail_text = activity_btn.find_element(
+                avail_text_btn = activity_btn.find_element(
                     By.CLASS_NAME, 'btn.btn-success-wait.availabilitybutton ')
-                if not avail_text.text == '':
+                if not avail_text_btn.text == '':
                     break
 
                 activity_btn = driver.find_element(
                     By.CLASS_NAME, 'btn-group.btn-block')
-                avail_text = activity_btn.find_element(
+                avail_text_btn = activity_btn.find_element(
                     By.CLASS_NAME, 'btn.btn-success-wait.availabilitybutton ')
-                if not avail_text.text == '':
+                if not avail_text_btn.text == '':
+                    break
+
+                activity_btn = driver.find_element(
+                    By.CLASS_NAME, 'col-sm-12.btn-group.btn-block')
+                avail_text_btn = activity_btn.find_element(
+                    By.CLASS_NAME, 'btn.btn-danger-wait.availabilitybutton ')
+                if not avail_text_btn.text == '':
+                    break
+
+                activity_btn = driver.find_element(
+                    By.CLASS_NAME, 'btn-group.btn-block')
+                avail_text_btn = activity_btn.find_element(
+                    By.CLASS_NAME, 'btn.btn-danger-wait.availabilitybutton ')
+                if not avail_text_btn.text == '':
                     break
 
             except:
                 continue
 
-        if no_results or avail_text == '' or not avail_text.text == 'Space':
+        if no_results or avail_text_btn == '' or not avail_text_btn.text == 'Space':
             continue
 
-        avail_text.click()
+        avail_text_btn.click()
 
         try:
             table_data1, index, columns1 = read_master_table(driver, timeout)
@@ -283,8 +291,9 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout)
             table_data2, index, columns2 = read_master_table(driver, timeout)
 
             columns = [*columns1, *columns2]
-            table_data = np.hstack(
-                (np.array(table_data1), np.array(table_data2)))
+            table_data = table_data1.copy()
+            table_data.extend(table_data2)
+
             del columns1, columns2, table_data1, table_data2
 
             df = pd.DataFrame(table_data, index=index, columns=columns)
@@ -301,28 +310,14 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout)
                                     'Prices': np.array(prices.copy()),
                                     'Spaces': np.array(spaces_avail.copy())}
 
-            EA_dict[centre_name]['Activity'][options_name] = dates_dict.copy()
-        except:
-            pass
+            EA_dict[centre_name]['Activity'][option] = dates_dict.copy()
+
+        except Exception as e:
+            print(f"Error in getting bookings from {centre_name}")
 
         if not i + 1 == len(valid_act_options):
-            driver.get(booking_link)
-            webwait(driver, 'ID', "bookingFrame", timeout)
-            driver.switch_to.frame('bookingFrame')
-
-            panels = webwait_all(driver, 'CLASS_NAME',
-                                 "panel.panel-default", timeout)
-            panel_names = [x.text.lower() for x in panels]
-            adv_search_panel = panels[panel_names.index('advanced search')]
-            driver.execute_script(
-                "arguments[0].scrollIntoView({block: 'center'});", adv_search_panel)
-            adv_search_panel_expanded = adv_search_panel.find_element(
-                By.CLASS_NAME, 'panel-heading').get_attribute('aria-expanded')
-            if adv_search_panel_expanded == 'false' or adv_search_panel_expanded is None:
-                adv_search_panel.click()
-
-            act_scroll, act_options = search_parameters(
-                driver, adv_search_panel, centre_name, timeout)
+            act_scroll, _ = setup_search_page(driver, booking_link,
+                                              centre_name, False, timeout)
 
     if EA_dict[centre_name]['Activity'] == {}:
         return None

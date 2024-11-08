@@ -67,9 +67,9 @@ if __name__ == '__main__':
     --> timeout - maximum time script waits for html elements to load.
     """
     better_dict, ea_dict = {}, {}
-    better_dict = scrape_better_website(postcode, activity, max_centres=5,
-                                        cpu_cores=cpu_count(), timeout=10)
-    ea_dict = scrape_ea_website(postcode, activity, max_centres=5,
+    # better_dict = scrape_better_website(postcode, activity, max_centres=5,
+    #                                     cpu_cores=cpu_count(), timeout=10)
+    ea_dict = scrape_ea_website(postcode, activity, max_centres=2,
                                 cpu_cores=cpu_count(), timeout=10)
 
     all_dict = {}
