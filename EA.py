@@ -5,7 +5,7 @@ import datetime
 import json
 import time
 
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import Select
@@ -157,7 +157,13 @@ def search_parameters(driver: webdriver, adv_search_panel: WebElement, centre_na
             continue
 
 
-def ea_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
+def filter_activity_options(activity: str, options: list[str]) -> list[str]:
+    """return valid activity options that match the specified activity"""
+
+    return [x for x in options if activity.lower() in x.lower()]
+
+
+def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout):
     EA_dict = {}
     booking_link = 'https://profile.everyoneactive.com/booking'
 
@@ -180,28 +186,24 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
         driver.close()
         return None
 
-    act_options_lower_case = [x.lower() for x in act_options]
-    valid_act_options = [act_options[x] for x in range(len(act_options_lower_case))
-                         if Act.lower() in act_options_lower_case[x]]
-
-    valid_act_options = [
-        x for x in valid_act_options if 'mixed' not in x.lower()]
+    valid_act_options = filter_activity_options(activity, act_options)
 
     if not valid_act_options:
-        print(f'{Act} is not available at: {centre_name}')
+        print(f'{activity} is not available at: {centre_name}')
         driver.close()
         return None
 
-    centre_address = centre_address.replace('\n', ', ')
-    EA_dict[centre_name] = {'Address': centre_address, 'Activity': {}, 'Distance': centre_distance,
-                            'Company': 'Everyone Active'}
+    EA_dict[centre_name] = {'Address': centre_address.replace('\n', ', '), 'Activity': {},
+                            'Distance': centre_distance, 'Company': 'Everyone Active'}
 
+    print(centre_address)
     for i, option in enumerate(valid_act_options):
         # Needed to remind the scroll object that it has options for some reason.
         act_scroll.options
         act_scroll.select_by_visible_text(option)
-        webwait(
-            driver, 'ID', "ctl00_MainContent__advanceSearchUserControl__searchBtn", timeout).click()
+
+        webwait(driver, 'ID',
+                "ctl00_MainContent__advanceSearchUserControl__searchBtn", timeout).click()
 
         avail_text = ''
         no_results = False
@@ -328,63 +330,78 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, Act, timeout):
     return EA_dict
 
 
-# Function for Everyone Active gyms/centres
-def scrape_ea_website(postcode, Act, max_centres=20, cpu_cores=4, timeout=10):
-    """
-    :param Loc: Location which to search from. Postcodes work best.
-    :param Act: Activity e.g: 'Badminton', 'Basketball'
-    :param max_centres: Take closest 'n' centres from Loc
-    :param cpu_cores: Number of parallel tabs to be open. Each tab is a different centre
-    :param timeout: Maximum wait time for website to load. If slow internet, increase this.
-    :return: dictionary of centres and corresponding info in the same structure as seen in BETTER_gym:
-    """
+def extract_coords_from_link(link: str) -> str:
+    """Get coordinates in the form of '[lat, lon]' embedded in website link"""
+
+    return link.split("/")[-1].replace(",", ", ")
+
+
+def reject_cookies(driver: WebDriver, timeout: int = 5):
+    """Try to reject cookies if popup appears"""
+
+    try:
+        webwait(driver, 'ID',
+                'CybotCookiebotDialogBodyButtonDecline', timeout=timeout).click()
+
+    except TimeoutException:
+        print('Cookies popup not found')
+
+
+def get_all_centre_info(postcode: str, max_centres: int = 10, timeout: int = 10) -> tuple[list, list, list]:
+    """Get name, address and distance of all EA centres and order 
+    in terms of distance and only return closest 'max_centres' centres"""
 
     home_coords = get_coordinates(postcode)
 
-    driver = webdriver.Chrome()
+    with webdriver.Chrome() as driver:
 
-    # EA_login_link = "https://account.everyoneactive.com/login/?redirect=/"
-    # driver.get(EA_login_link)
-    # EA_login(driver, timeout)
+        centres_page = "https://www.everyoneactive.com/centre/"
+        driver.get(centres_page)
 
-    centres_page = "https://www.everyoneactive.com/centre/"
-    driver.get(centres_page)
+        reject_cookies(driver)
 
-    all_centres = webwait_all(driver, 'CLASS_NAME',
+        centres = webwait_all(driver, 'CLASS_NAME',
                               "centre-finder__results-item-name", timeout)
-    all_centre_names = [x.find_element(
-        By.TAG_NAME, "a").text for x in all_centres]
-    all_centre_links = [x.find_element(
-        By.TAG_NAME, "a").get_attribute("href") for x in all_centres]
-    all_centre_adresses = [x.find_element(
-        By.TAG_NAME, "a").text for x in all_centres]
-    all_centre_coords = [f'[{x.get_attribute("href").split("/")[-1].replace(",", ", ")}]' for x in
-                         driver.find_elements(
-                             By.CLASS_NAME, 'centre-finder__results-details-link.link--external')
-                         ]
+        centre_names = [x.find_element(By.TAG_NAME, "a").text
+                        for x in centres]
 
-    valid_indexes = np.array([all_centre_coords.index(x)
-                             for x in all_centre_coords if x != '[, ]'])
-    all_centre_names = np.array(all_centre_names)[valid_indexes]
-    all_centre_adresses = np.array(all_centre_adresses)[valid_indexes]
-    all_centre_coords = np.array(all_centre_coords)[valid_indexes]
-    all_centre_links = np.array(all_centre_links)[valid_indexes]
+        centre_addresses = [x.text for x in driver.find_elements(By.CLASS_NAME,
+                                                                 'centre-finder__results-details-address')]
+        centre_coords = [f'[{extract_coords_from_link(x.get_attribute("href"))}]'
+                         for x in driver.find_elements(By.CLASS_NAME,
+                                                       'centre-finder__results-details-link.link--external')]
 
-    all_centre_coords = np.array([json.loads(x) for x in all_centre_coords])
-    all_centre_distances = np.array(
-        [np.round(distance.geodesic(home_coords, x).km, 3) for x in all_centre_coords])
+    valid_indexes = [centre_coords.index(x)
+                     for x in centre_coords if x != '[, ]']
+    centre_names = [centre_names[x] for x in valid_indexes]
+    centre_addresses = [centre_addresses[x] for x in valid_indexes]
 
-    ordered_indexes = np.argsort(all_centre_distances)[:max_centres]
-    all_centre_names = list(all_centre_names[ordered_indexes])
-    all_centre_adresses = list(all_centre_adresses[ordered_indexes])
-    all_centre_distances = list(all_centre_distances[ordered_indexes])
+    centre_coords = [centre_coords[x] for x in valid_indexes]
+    centre_coords = [json.loads(x) for x in centre_coords]
+    centre_distances = [round(distance.geodesic(home_coords, x).km, 3)
+                        for x in centre_coords]
+
+    ordered_indexes = [x[0] for x in sorted(enumerate(centre_distances),
+                                            key=lambda x: x[1])]
+
+    centre_names = [centre_names[x]
+                    for x in ordered_indexes][:max_centres]
+    centre_addresses = [centre_addresses[x] for x in ordered_indexes]
+    centre_distances = [centre_distances[x] for x in ordered_indexes]
+
+    return centre_names, centre_addresses, centre_distances
+
+
+def scrape_ea_website(postcode, activity, max_centres=20, cpu_cores=4, timeout=10):
+    """Perform web scraping of EA websites"""
+
+    all_centre_names, all_centre_addresses, all_centre_distances = get_all_centre_info(
+        postcode, max_centres, timeout)
 
     EA_dict = {}
 
-    driver.close()
-
-    func = partial(ea_gym_loop, Act=Act, timeout=timeout)
-    results = p_map(func, all_centre_names, all_centre_adresses,
+    func = partial(ea_gym_loop, activity=activity, timeout=timeout)
+    results = p_map(func, all_centre_names, all_centre_addresses,
                     all_centre_distances, num_cpus=cpu_cores)
 
     for result in results:

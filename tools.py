@@ -23,11 +23,19 @@ def webwait(driver: WebDriver, type_: str, name: str, timeout: int) -> WebElemen
     )
 
 
+def wait_until_element_seen(driver: WebDriver, element: WebElement, timeout: int = 5) -> None:
+    """Wait until element is in view"""
+
+    WebDriverWait(driver, timeout).until(EC.visibility_of(element))
+
+
 def scroll_into_view(driver: WebDriver, element: WebElement) -> None:
     """Bring specific element into view"""
 
     driver.execute_script(
         "arguments[0].scrollIntoView({block: 'center'});", element)
+
+    wait_until_element_seen(driver, element)
 
 
 def get_coordinates(postcode: str) -> tuple[int, int]:
