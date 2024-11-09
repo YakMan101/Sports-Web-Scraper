@@ -1,6 +1,6 @@
 """Functions to retrieve available sports hall boookings from BETTER leisure centre websites"""
 
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.select import Select
@@ -51,7 +51,7 @@ def get_activities(driver: WebDriver, timeout: int, retries: int = 5) -> list[di
 
             return [{'name': name, 'link': link} for name, link in zip(activity_names, activity_links)]
 
-        except:
+        except (TimeoutError, TimeoutException):
             retry_count += 1
             print(
                 f'Retrying link (A) {driver.current_url}, attempt {retry_count}')
@@ -69,7 +69,7 @@ def get_dates_tab(driver: WebDriver, timeout: int, retries: int = 5) -> WebEleme
         try:
             return webwait(driver, "CSS_SELECTOR",
                            "[class^='DateRibbonComponent__DatesWrapper-sc-p1q1bx-1']", timeout)
-        except TimeoutError:
+        except (TimeoutError, TimeoutException):
             retry_count += 1
             print(
                 f'Retrying link (B) {driver.current_url}, attempt {retry_count}')
