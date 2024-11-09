@@ -200,15 +200,77 @@ def find_avail_button(driver: WebDriver) -> WebElement | str:
     """Find and check string in availability button"""
 
     for block in ['col-sm-12.btn-group.btn-block', 'btn-group.btn-block']:
-        activity_btn = driver.find_element(By.CLASS_NAME, block)
+
+        try:
+            activity_btn = driver.find_element(By.CLASS_NAME, block)
+        except NoSuchElementException:
+            continue
 
         for btn in ['btn.btn-success-wait.availabilitybutton ', 'btn.btn-danger-wait.availabilitybutton ']:
-            avail_text_btn = activity_btn.find_element(By.CLASS_NAME, btn)
+            try:
+                avail_text_btn = activity_btn.find_element(By.CLASS_NAME, btn)
+            except NoSuchElementException:
+                continue
 
             if not avail_text_btn.text == '':
                 return avail_text_btn
 
     return ''
+
+
+def read_bookings(driver: WebDriver, timeout: int = 10) -> tuple[list[int], list[str], list[str]]:
+    """Read table data spanning over 2 weeks"""
+
+    table_data1, index, columns1 = read_master_table(driver, timeout)
+
+    date_window_text = webwait(driver, 'ID',
+                               "ctl00_MainContent_startDate",
+                               timeout).text
+
+    webwait(driver, 'ID',
+            "ctl00_MainContent_dateForward1", timeout).click()
+
+    date_window_text2 = date_window_text
+
+    while date_window_text2 == date_window_text or date_window_text2 == '':
+        try:
+            date_window_text2 = webwait(
+                driver, 'ID', "ctl00_MainContent_startDate", timeout).text
+        except:
+            continue
+
+    table_data2, index, columns2 = read_master_table(driver, timeout)
+
+    columns = [*columns1, *columns2]
+    table_data = table_data1.copy()
+    table_data.extend(table_data2)
+
+    return table_data, index, columns
+
+
+def compile_table_data_into_dict(table_data: list[list[int]], index: list[str], columns: list[str]) -> dict:
+    """Convert the nested table data into a easier to use dict object"""
+
+    dates_dict = {}
+    for col_idx, date in enumerate(columns):
+        times = []
+        prices = []
+        spaces_avail = []
+
+        for row_idx, value in enumerate(table_data):
+            if value[col_idx] == 1:
+                times.append(index[row_idx])
+                prices.append('NaN')
+                spaces_avail.append('NaN')
+
+        if times:
+            dates_dict[date] = {
+                'Times': times,
+                'Prices': prices,
+                'Spaces': spaces_avail
+            }
+
+    return dates_dict
 
 
 def loop_through_activities(driver: WebDriver, act_scroll: Select, activity_options: list[str],
@@ -236,15 +298,14 @@ def loop_through_activities(driver: WebDriver, act_scroll: Select, activity_opti
 
         while (time.time() - start) <= timeout:
 
-            try:
-                if check_for_no_results(driver):
-                    no_results = True
-                    break
+            if check_for_no_results(driver):
+                no_results = True
+                break
 
-                avail_text_btn = find_avail_button(driver)
+            avail_text_btn = find_avail_button(driver)
 
-            except:
-                continue
+            if avail_text_btn != '':
+                break
 
         if no_results or avail_text_btn == '' or not avail_text_btn.text == 'Space':
             continue
@@ -252,49 +313,13 @@ def loop_through_activities(driver: WebDriver, act_scroll: Select, activity_opti
         avail_text_btn.click()
 
         try:
-            table_data1, index, columns1 = read_master_table(driver, timeout)
+            table_data, index, columns = read_bookings(driver, timeout)
 
-            date_window_text = webwait(driver, 'ID',
-                                       "ctl00_MainContent_startDate",
-                                       timeout).text
+            dates_dict = compile_table_data_into_dict(table_data,
+                                                      index, columns)
 
-            webwait(driver, 'ID',
-                    "ctl00_MainContent_dateForward1", timeout).click()
-
-            date_window_text2 = date_window_text
-
-            while date_window_text2 == date_window_text or date_window_text2 == '':
-                try:
-                    date_window_text2 = webwait(
-                        driver, 'ID', "ctl00_MainContent_startDate", timeout).text
-                except:
-                    continue
-
-            table_data2, index, columns2 = read_master_table(driver, timeout)
-
-            columns = [*columns1, *columns2]
-            table_data = table_data1.copy()
-            table_data.extend(table_data2)
-
-            del columns1, columns2, table_data1, table_data2
-
-            df = pd.DataFrame(table_data, index=index, columns=columns)
-
-            dates_dict = {}
-            for date in columns:
-                times = [index[x]
-                         for x in range(len(df[date])) if df[date].iloc[x] == 1]
-
-                if not times:
-                    continue
-
-                prices = ['NaN'] * len(times)
-                spaces_avail = ['NaN'] * len(times)
-                dates_dict[date] = {'Times': times.copy(),
-                                    'Prices': prices.copy(),
-                                    'Spaces': spaces_avail.copy()}
-
-            activity_dict[option] = dates_dict.copy()
+            if dates_dict:
+                activity_dict[option] = dates_dict.copy()
 
         except Exception as e:
             print(f"Error in getting {option} bookings from {centre_name}")
