@@ -42,8 +42,8 @@ def write_save_avail(data, home, act):
                     f.write("\n       " + "Prices: ")
                     for price in centre_info['Activity'][activity][date]['Prices']:
                         str_len_price = len(price)
-                        spaces = str_len_time - str_len_price
-                        f.write("£" + price + " " * int(spaces) - 1 + "| ")
+                        spaces = str_len_time - str_len_price - 1
+                        f.write("£" + price + " " * int(spaces) + "| ")
 
                     f.write("\n       " + "Spaces: ")
                     for courts in centre_info['Activity'][activity][date]['Spaces']:
@@ -67,9 +67,9 @@ if __name__ == '__main__':
     --> timeout - maximum time script waits for html elements to load.
     """
     better_dict, ea_dict = {}, {}
-    better_dict = scrape_better_website(postcode, activity, max_centres=5,
+    better_dict = scrape_better_website(postcode, activity, max_centres=3,
                                         cpu_cores=cpu_count(), timeout=10)
-    ea_dict = scrape_ea_website(postcode, activity, max_centres=5,
+    ea_dict = scrape_ea_website(postcode, activity, max_centres=3,
                                 cpu_cores=cpu_count(), timeout=10)
 
     all_dict = {}
