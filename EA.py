@@ -16,7 +16,6 @@ from geopy import distance
 
 from p_tqdm import p_map
 import pandas as pd
-import numpy as np
 
 
 from tools import webwait, webwait_all, similar, get_coordinates, scroll_into_view, return_similar_strings
@@ -36,16 +35,18 @@ def ea_login(driver, timeout):
     webwait(driver, 'CSS_SELECTOR', 'button[type="submit"]', timeout).click()
 
 
-def read_master_table(driver: WebDriver, timeout: int) -> tuple[list[int], list[str], list[str]]:
+def read_master_table(driver: WebDriver, timeout: int) -> tuple[list[int] | None,
+                                                                list[str] | None,
+                                                                list[str] | None]:
     """Read table of available bookings"""
 
     try:
-        availabilty_grid = webwait(
-            driver, 'CLASS_NAME', "masterTable ", timeout)
+        availability_grid = webwait(driver, 'CLASS_NAME',
+                                    "masterTable ", timeout)
     except:
         return None, None, None
 
-    rows = webwait_all(availabilty_grid, 'TAG_NAME', "tr", timeout)[1:]
+    rows = webwait_all(availability_grid, 'TAG_NAME', "tr", timeout)[1:]
 
     table = driver.find_element(By.CLASS_NAME, 'masterTable ')
     table_html = table.get_attribute('outerHTML')
@@ -180,32 +181,44 @@ def setup_search_page(driver: WebDriver, booking_link: str, centre_name: str, lo
     return search_parameters(driver, adv_search_panel, centre_name, timeout)
 
 
-def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout):
-    EA_dict = {}
-    booking_link = 'https://profile.everyoneactive.com/booking'
+def check_for_no_results(driver: WebDriver) -> bool:
+    """Check if booking page shows up with no results"""
 
-    driver = webdriver.Chrome()
-    act_scroll, act_options = setup_search_page(
-        driver, booking_link, centre_name, True, timeout)
+    try:
+        alert_text = driver.find_element(By.CLASS_NAME,
+                                         'alert.alert-warning').text
+        if 'no results' in alert_text.lower():
+            return True
 
-    if act_scroll is None:
-        print(f'{centre_name} cannot be found')
-        driver.close()
-        return None
+        return False
 
-    valid_act_options = filter_activity_options(activity, act_options)
+    except:
+        return False
 
-    if not valid_act_options:
-        print(f'{activity} is not available at: {centre_name}')
-        driver.close()
-        return None
 
-    EA_dict[centre_name] = {'Address': centre_address.replace('\n', ', '), 'Activity': {},
-                            'Distance': centre_distance, 'Company': 'Everyone Active'}
+def find_avail_button(driver: WebDriver) -> WebElement | str:
+    """Find and check string in availability button"""
 
-    for i, option in enumerate(valid_act_options):
+    for block in ['col-sm-12.btn-group.btn-block', 'btn-group.btn-block']:
+        activity_btn = driver.find_element(By.CLASS_NAME, block)
 
-        print(option)
+        for btn in ['btn.btn-success-wait.availabilitybutton ', 'btn.btn-danger-wait.availabilitybutton ']:
+            avail_text_btn = activity_btn.find_element(By.CLASS_NAME, btn)
+
+            if not avail_text_btn.text == '':
+                return avail_text_btn
+
+    return ''
+
+
+def loop_through_activities(driver: WebDriver, act_scroll: Select, activity_options: list[str],
+                            centre_name: str, booking_link: str, timeout: int = 10) -> dict[str:str]:
+    """Loop through and scrape info of each activity for a given centre"""
+
+    activity_dict = {}
+
+    for i, option in enumerate(activity_options):
+
         while True:
             try:
                 act_scroll.select_by_visible_text(option)
@@ -217,50 +230,18 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout)
         webwait(driver, 'ID',
                 "ctl00_MainContent__advanceSearchUserControl__searchBtn", timeout).click()
 
-        avail_text = ''
+        avail_text_btn = ''
         no_results = False
         start = time.time()
 
         while (time.time() - start) <= timeout:
 
             try:
-                try:
-                    alert_text = driver.find_element(
-                        By.CLASS_NAME, 'alert.alert-warning').text
-
-                    if 'No results' in alert_text:
-                        no_results = True
-                        break
-                except:
-                    pass
-
-                activity_btn = driver.find_element(
-                    By.CLASS_NAME, 'col-sm-12.btn-group.btn-block')
-                avail_text_btn = activity_btn.find_element(
-                    By.CLASS_NAME, 'btn.btn-success-wait.availabilitybutton ')
-                if not avail_text_btn.text == '':
+                if check_for_no_results(driver):
+                    no_results = True
                     break
 
-                activity_btn = driver.find_element(
-                    By.CLASS_NAME, 'btn-group.btn-block')
-                avail_text_btn = activity_btn.find_element(
-                    By.CLASS_NAME, 'btn.btn-success-wait.availabilitybutton ')
-                if not avail_text_btn.text == '':
-                    break
-
-                activity_btn = driver.find_element(
-                    By.CLASS_NAME, 'col-sm-12.btn-group.btn-block')
-                avail_text_btn = activity_btn.find_element(
-                    By.CLASS_NAME, 'btn.btn-danger-wait.availabilitybutton ')
-                if not avail_text_btn.text == '':
-                    break
-
-                activity_btn = driver.find_element(
-                    By.CLASS_NAME, 'btn-group.btn-block')
-                avail_text_btn = activity_btn.find_element(
-                    By.CLASS_NAME, 'btn.btn-danger-wait.availabilitybutton ')
-                if not avail_text_btn.text == '':
-                    break
+                avail_text_btn = find_avail_button(driver)
 
             except:
                 continue
@@ -273,11 +254,12 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout)
         try:
             table_data1, index, columns1 = read_master_table(driver, timeout)
 
-            date_window_text = webwait(
-                driver, 'ID', "ctl00_MainContent_startDate", timeout).text
+            date_window_text = webwait(driver, 'ID',
+                                       "ctl00_MainContent_startDate",
+                                       timeout).text
 
-            webwait(driver, 'ID', "ctl00_MainContent_dateForward1",
-                    timeout).click()
+            webwait(driver, 'ID',
+                    "ctl00_MainContent_dateForward1", timeout).click()
 
             date_window_text2 = date_window_text
 
@@ -302,27 +284,59 @@ def ea_gym_loop(centre_name, centre_address, centre_distance, activity, timeout)
             for date in columns:
                 times = [index[x]
                          for x in range(len(df[date])) if df[date].iloc[x] == 1]
+
                 if not times:
                     continue
+
                 prices = ['NaN'] * len(times)
                 spaces_avail = ['NaN'] * len(times)
-                dates_dict[date] = {'Times': np.array(times.copy()),
-                                    'Prices': np.array(prices.copy()),
-                                    'Spaces': np.array(spaces_avail.copy())}
+                dates_dict[date] = {'Times': times.copy(),
+                                    'Prices': prices.copy(),
+                                    'Spaces': spaces_avail.copy()}
 
-            EA_dict[centre_name]['Activity'][option] = dates_dict.copy()
+            activity_dict[option] = dates_dict.copy()
 
         except Exception as e:
-            print(f"Error in getting bookings from {centre_name}")
+            print(f"Error in getting {option} bookings from {centre_name}")
 
-        if not i + 1 == len(valid_act_options):
+        if not i + 1 == len(activity_options):
             act_scroll, _ = setup_search_page(driver, booking_link,
                                               centre_name, False, timeout)
 
-    if EA_dict[centre_name]['Activity'] == {}:
+    return activity_dict
+
+
+def ea_gym_loop(centre_name, centre_distance, activity, timeout):
+    """Scrape info from a certain centre"""
+
+    booking_link = 'https://profile.everyoneactive.com/booking'
+
+    with webdriver.Chrome() as driver:
+        act_scroll, act_options = setup_search_page(driver, booking_link,
+                                                    centre_name, True, timeout)
+
+        if act_scroll is None:
+            print(f'{centre_name} cannot be found')
+            driver.close()
+            return None
+
+        valid_act_options = filter_activity_options(activity, act_options)
+
+        if not valid_act_options:
+            print(f'{activity} is not available at: {centre_name}')
+            driver.close()
+            return None
+
+        activity_dict = loop_through_activities(driver, act_scroll,
+                                                valid_act_options, centre_name,
+                                                booking_link, timeout)
+
+    if activity_dict == {}:
         return None
-    driver.close()
-    return EA_dict
+
+    return {centre_name: {'Address': 'N/A', 'Activity': activity_dict,
+                          'Distance': centre_distance,
+                          'Company': 'Everyone Active'}}
 
 
 def extract_coords_from_link(link: str) -> str:
@@ -359,9 +373,6 @@ def get_all_centre_info(postcode: str, max_centres: int = 10, timeout: int = 10)
                               "centre-finder__results-item-name", timeout)
         centre_names = [x.find_element(By.TAG_NAME, "a").text
                         for x in centres]
-
-        centre_addresses = [x.text for x in driver.find_elements(By.CLASS_NAME,
-                                                                 'centre-finder__results-details-address')]
         centre_coords = [f'[{extract_coords_from_link(x.get_attribute("href"))}]'
                          for x in driver.find_elements(By.CLASS_NAME,
                                                        'centre-finder__results-details-link.link--external')]
@@ -369,7 +380,6 @@ def get_all_centre_info(postcode: str, max_centres: int = 10, timeout: int = 10)
     valid_indexes = [centre_coords.index(x)
                      for x in centre_coords if x != '[, ]']
     centre_names = [centre_names[x] for x in valid_indexes]
-    centre_addresses = [centre_addresses[x] for x in valid_indexes]
 
     centre_coords = [centre_coords[x] for x in valid_indexes]
     centre_coords = [json.loads(x) for x in centre_coords]
@@ -381,23 +391,22 @@ def get_all_centre_info(postcode: str, max_centres: int = 10, timeout: int = 10)
 
     centre_names = [centre_names[x]
                     for x in ordered_indexes][:max_centres]
-    centre_addresses = [centre_addresses[x] for x in ordered_indexes]
     centre_distances = [centre_distances[x] for x in ordered_indexes]
 
-    return centre_names, centre_addresses, centre_distances
+    return centre_names, centre_distances
 
 
 def scrape_ea_website(postcode, activity, max_centres=20, cpu_cores=4, timeout=10):
     """Perform web scraping of EA websites"""
 
-    all_centre_names, all_centre_addresses, all_centre_distances = get_all_centre_info(
-        postcode, max_centres, timeout)
+    all_centre_names, all_centre_distances = get_all_centre_info(postcode,
+                                                                 max_centres, timeout)
 
     EA_dict = {}
 
     func = partial(ea_gym_loop, activity=activity, timeout=timeout)
-    results = p_map(func, all_centre_names, all_centre_addresses,
-                    all_centre_distances, num_cpus=cpu_cores)
+    results = p_map(func, all_centre_names, all_centre_distances,
+                    num_cpus=cpu_cores)
 
     for result in results:
         if result is None:
