@@ -6,3 +6,4 @@ p_tqdm
 pandas
 numpy
 python-dotenv
+lxml

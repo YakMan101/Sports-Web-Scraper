@@ -5,7 +5,7 @@ import datetime
 import json
 import time
 
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException, ElementClickInterceptedException
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import Select
@@ -35,16 +35,53 @@ def ea_login(driver, timeout):
     webwait(driver, 'CSS_SELECTOR', 'button[type="submit"]', timeout).click()
 
 
+def find_master_table(driver: WebDriver, timeout: int = 10) -> WebElement | None | bool:
+    """Check if master table is present. Return None if there are no slots are avail,
+    return False if the booking is not of table type"""
+
+    start = time.time()
+    while (time.time() - start) <= timeout:
+        try:
+            availability_grid = driver.find_element(
+                By.CLASS_NAME, "masterTable ")
+
+            return availability_grid
+
+        except NoSuchElementException:
+            pass
+
+        try:
+            no_slots_msg = driver.find_element(
+                By.CLASS_NAME, "alert.alert-warning").text
+            if no_slots_msg.lower().startswith("no "):
+                return None
+
+        except NoSuchElementException:
+            pass
+
+        try:
+            driver.find_element(
+                By.CLASS_NAME, "btn.btn-success ")
+            return False
+
+        except NoSuchElementException:
+            pass
+
+    return False
+
+
 def read_master_table(driver: WebDriver, timeout: int) -> tuple[list[int] | None,
                                                                 list[str] | None,
                                                                 list[str] | None]:
     """Read table of available bookings"""
 
-    try:
-        availability_grid = webwait(driver, 'CLASS_NAME',
-                                    "masterTable ", timeout)
-    except:
+    availability_grid = find_master_table(driver, timeout)
+
+    if availability_grid == False:
         return None, None, None
+
+    if availability_grid is None:
+        return [], [], []
 
     rows = webwait_all(availability_grid, 'TAG_NAME', "tr", timeout)[1:]
 
@@ -133,12 +170,11 @@ def get_activity_options(driver: WebDriver, timeout: int) -> tuple[Select, list[
     return act_scroll, [x.text for x in act_scroll.options]
 
 
-def search_parameters(driver: webdriver, adv_search_panel: WebElement, centre_name: str, timeout: int) -> tuple[Select, list[str]]:
-    start = time.time()
-    while True:
-        if (time.time() - start) >= timeout:
-            return None, None
+def search_parameters(driver: WebDriver, adv_search_panel: WebElement, centre_name: str, timeout: int) -> tuple[Select, list[str]]:
+    """Fill in the search page with appropriate parameters"""
 
+    start = time.time()
+    while (time.time() - start) <= timeout:
         try:
             centre_scroll, centre_options = get_centre_options(driver, adv_search_panel,
                                                                timeout)
@@ -156,6 +192,8 @@ def search_parameters(driver: webdriver, adv_search_panel: WebElement, centre_na
 
         except (IndexError, StaleElementReferenceException):
             continue
+
+    return None, None
 
 
 def filter_activity_options(activity: str, options: list[str]) -> list[str]:
@@ -196,7 +234,7 @@ def check_for_no_results(driver: WebDriver) -> bool:
         return False
 
 
-def find_avail_button(driver: WebDriver) -> WebElement | str:
+def find_avail_button(driver: WebDriver) -> tuple[WebElement, str, str] | tuple[None, str, str]:
     """Find and check string in availability button"""
 
     for block in ['col-sm-12.btn-group.btn-block', 'btn-group.btn-block']:
@@ -209,19 +247,24 @@ def find_avail_button(driver: WebDriver) -> WebElement | str:
         for btn in ['btn.btn-success-wait.availabilitybutton ', 'btn.btn-danger-wait.availabilitybutton ']:
             try:
                 avail_text_btn = activity_btn.find_element(By.CLASS_NAME, btn)
+                activity_name = activity_btn.find_element(By.CLASS_NAME,
+                                                          'BookingLinkButton.btn.btn-primary ').text.strip()
             except NoSuchElementException:
                 continue
 
-            if not avail_text_btn.text == '':
-                return avail_text_btn
+            if avail_text_btn.text.lower() in ['space', 'full']:
+                return avail_text_btn, avail_text_btn.text, activity_name
 
-    return ''
+    return None, '', ''
 
 
 def read_bookings(driver: WebDriver, timeout: int = 10) -> tuple[list[int], list[str], list[str]]:
     """Read table data spanning over 2 weeks"""
 
-    table_data1, index, columns1 = read_master_table(driver, timeout)
+    table_data1, index1, columns1 = read_master_table(driver, timeout)
+
+    if table_data1 is None:
+        return [], [], []
 
     date_window_text = webwait(driver, 'ID',
                                "ctl00_MainContent_startDate",
@@ -239,13 +282,23 @@ def read_bookings(driver: WebDriver, timeout: int = 10) -> tuple[list[int], list
         except:
             continue
 
-    table_data2, index, columns2 = read_master_table(driver, timeout)
+    table_data2, index2, columns2 = read_master_table(driver, timeout)
+
+    if not table_data1 and not table_data2:
+        return [], [], []
+
+    if table_data1 and not table_data2:
+        return table_data1, index1, columns1
+
+    if table_data2 and not table_data1:
+        return table_data2, index2, columns2
 
     columns = [*columns1, *columns2]
     table_data = table_data1.copy()
-    table_data.extend(table_data2)
+    for i, row in enumerate(table_data):
+        row.extend(table_data2[i])
 
-    return table_data, index, columns
+    return table_data, index1, columns
 
 
 def compile_table_data_into_dict(table_data: list[list[int]], index: list[str], columns: list[str]) -> dict:
@@ -273,6 +326,45 @@ def compile_table_data_into_dict(table_data: list[list[int]], index: list[str], 
     return dates_dict
 
 
+def click_and_wait_search(driver: WebDriver, timeout: int = 10) -> None:
+    """Click search button and wait untill it is finished"""
+
+    start = time.time()
+    while (time.time() - start) <= timeout:
+        try:
+            webwait(driver, 'ID',
+                    "ctl00_MainContent__advanceSearchUserControl__searchBtn",
+                    timeout).click()
+            break
+
+        except ElementClickInterceptedException:
+            pass
+
+    start = time.time()
+    while (time.time() - start) <= timeout:
+        try:
+            search_btn = driver.find_element(
+                By.ID, "ctl00_MainContent__advanceSearchUserControl__searchBtn")
+            if search_btn.get_attribute("disabled") is None:
+                break
+
+        except StaleElementReferenceException:
+            pass
+
+
+def wait_for_slots_table_to_load(driver: WebDriver, timeout: int = 10) -> None:
+    """Wait for table with booking slots to load"""
+
+    start = time.time()
+    while (time.time() - start) <= timeout:
+        try:
+            driver.find_element(By.ID, 'slotsGrid')
+            break
+
+        except NoSuchElementException:
+            pass
+
+
 def loop_through_activities(driver: WebDriver, act_scroll: Select, activity_options: list[str],
                             centre_name: str, booking_link: str, timeout: int = 10) -> dict[str:str]:
     """Loop through and scrape info of each activity for a given centre"""
@@ -289,40 +381,32 @@ def loop_through_activities(driver: WebDriver, act_scroll: Select, activity_opti
             except NoSuchElementException:
                 pass
 
-        webwait(driver, 'ID',
-                "ctl00_MainContent__advanceSearchUserControl__searchBtn", timeout).click()
+        click_and_wait_search(driver, timeout)
 
-        avail_text_btn = ''
         no_results = False
         start = time.time()
-
         while (time.time() - start) <= timeout:
 
             if check_for_no_results(driver):
                 no_results = True
                 break
 
-            avail_text_btn = find_avail_button(driver)
-
-            if avail_text_btn != '':
+            avail_text_btn, avail_text, activity_text = find_avail_button(
+                driver)
+            if activity_text == option:
                 break
 
-        if no_results or avail_text_btn == '' or not avail_text_btn.text == 'Space':
+        if no_results or not avail_text.lower() == 'space' or activity_text != option:
             continue
 
         avail_text_btn.click()
+        wait_for_slots_table_to_load(driver, timeout)
 
-        try:
-            table_data, index, columns = read_bookings(driver, timeout)
-
-            dates_dict = compile_table_data_into_dict(table_data,
-                                                      index, columns)
-
-            if dates_dict:
-                activity_dict[option] = dates_dict.copy()
-
-        except Exception as e:
-            print(f"Error in getting {option} bookings from {centre_name}")
+        table_data, index, columns = read_bookings(driver, timeout)
+        if table_data:
+            dates_dict = compile_table_data_into_dict(
+                table_data, index, columns)
+            activity_dict[option] = dates_dict.copy()
 
         if not i + 1 == len(activity_options):
             act_scroll, _ = setup_search_page(driver, booking_link,

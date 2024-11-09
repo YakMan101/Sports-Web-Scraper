@@ -43,7 +43,7 @@ def write_save_avail(data, home, act):
                     for price in centre_info['Activity'][activity][date]['Prices']:
                         str_len_price = len(price)
                         spaces = str_len_time - str_len_price
-                        f.write("£" + price + " " * int(spaces) + "| ")
+                        f.write("£" + price + " " * int(spaces) - 1 + "| ")
 
                     f.write("\n       " + "Spaces: ")
                     for courts in centre_info['Activity'][activity][date]['Spaces']:
@@ -61,23 +61,23 @@ if __name__ == '__main__':
 
     """
     If you have slower internet or computer please either reduce 'cpu_cores' or increase 'timeout'
-    
+
     --> max_centres - Search upto this many closest centres.
     --> cpu_cores - Number of parallel browsers that can be open at the same time
     --> timeout - maximum time script waits for html elements to load.
     """
     better_dict, ea_dict = {}, {}
-    # better_dict = scrape_better_website(postcode, activity, max_centres=5,
+    better_dict = scrape_better_website(postcode, activity, max_centres=5,
     #                                     cpu_cores=cpu_count(), timeout=10)
-    ea_dict = scrape_ea_website(postcode, activity, max_centres=2,
+    ea_dict=scrape_ea_website(postcode, activity, max_centres=5,
                                 cpu_cores=cpu_count(), timeout=10)
 
-    all_dict = {}
+    all_dict={}
     for i in [better_dict, ea_dict]:
-        all_dict = all_dict | i
+        all_dict=all_dict | i
 
-    dict_list = [x for x in all_dict.items()]
-    dict_list_sorted = sorted(dict_list,
+    dict_list=[x for x in all_dict.items()]
+    dict_list_sorted=sorted(dict_list,
                               key=lambda x: x[1]['Distance']
                               if x[1]['Distance']
                               is not None else 99999)
